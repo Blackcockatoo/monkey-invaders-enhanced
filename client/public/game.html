@@ -460,6 +460,7 @@
         let startingAdvantage = 'none';
         let startingDisadvantage = 'none';
         let curdCodeInput = '';
+        let breachFlash = 0;
         
         let monkey = {
             x: canvas.width / 2 - 25,
@@ -947,10 +948,13 @@
                         alien.alive = false;
                         alien.y = canvas.height + alien.height;
                         lives--;
+                        breachFlash = 1;
+                        createParticles(alien.x + alien.width / 2, canvas.height - 80, '#ff3b3b', 25);
                         if (lives === 0) endGame();
                     }
                 });
                 
+                breachFlash = Math.max(0, breachFlash - 0.08);
                 monkey.throwCooldown = Math.max(0, monkey.throwCooldown - 16);
             }
             
@@ -1028,6 +1032,11 @@
             
             drawMonkey();
             
+            if (breachFlash > 0) {
+                ctx.fillStyle = `rgba(255, 80, 80, ${breachFlash * 0.25})`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            
             if (gamePaused) {
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1048,6 +1057,8 @@
                 ctx.save();
                 ctx.translate(startX + m * spacing, monkey.y + monkey.height / 2);
                 
+                ctx.shadowColor = 'rgba(255, 204, 128, 0.6)';
+                ctx.shadowBlur = 12;
                 ctx.fillStyle = '#8B4513';
                 ctx.beginPath();
                 ctx.ellipse(0, 5, 20, 25, 0, 0, Math.PI * 2);
@@ -1058,6 +1069,7 @@
                 ctx.arc(0, -15, 18, 0, Math.PI * 2);
                 ctx.fill();
                 
+                ctx.shadowBlur = 0;
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
                 ctx.arc(-8, -18, 6, 0, Math.PI * 2);
@@ -1070,11 +1082,30 @@
                 ctx.arc(8, -18, 3, 0, Math.PI * 2);
                 ctx.fill();
                 
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(-9, -20, 1.5, 0, Math.PI * 2);
+                ctx.arc(7, -20, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+                
                 ctx.strokeStyle = '#000';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.arc(0, -8, 6, 0, Math.PI);
                 ctx.stroke();
+                
+                ctx.fillStyle = '#ff9aa2';
+                ctx.globalAlpha = 0.7;
+                ctx.beginPath();
+                ctx.ellipse(-12, -10, 4, 2.5, 0, 0, Math.PI * 2);
+                ctx.ellipse(12, -10, 4, 2.5, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(0, -6, 2, 0, Math.PI * 2);
+                ctx.fill();
                 
                 ctx.fillStyle = '#8B4513';
                 ctx.beginPath();
