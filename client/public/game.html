@@ -670,6 +670,7 @@
                         height: alienHeight,
                         type: row % 3,
                         alive: true,
+                        hasBreached: false,
                         crying: false,
                         cryTimer: 0,
                         fallSpeed: 0,
@@ -941,9 +942,12 @@
                 }
                 
                 aliens.forEach(alien => {
-                    if (alien.y + alien.height > canvas.height - 80) {
+                    if (lives > 0 && !alien.hasBreached && alien.y + alien.height > canvas.height - 80) {
+                        alien.hasBreached = true;
+                        alien.alive = false;
+                        alien.y = canvas.height + alien.height;
                         lives--;
-                        if (lives <= 0) endGame();
+                        if (lives === 0) endGame();
                     }
                 });
                 
