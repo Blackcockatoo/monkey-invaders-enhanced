@@ -360,7 +360,7 @@
         </div>
         
         <div class="banana-counter">
-            🍌 <span id="bananaCount">0</span>/64
+            🍌 <span id="bananaCount">0</span>/<span id="bananaMax">64</span>
         </div>
         
         <div id="powerupDisplay">
@@ -432,6 +432,21 @@
                 </select>
             </div>
             
+            <div style="margin-bottom: 30px; text-align: center;">
+                <h3 style="color: #fff; margin-bottom: 15px;">Invincible Outside Bosses</h3>
+                <button class="btn-setting active" id="invincible-toggle" onclick="toggleInvincibleOutsideBosses()">ON</button>
+            </div>
+            
+            <div style="margin-bottom: 30px; text-align: center;">
+                <h3 style="color: #fff; margin-bottom: 15px;">Absurd Mode</h3>
+                <select id="absurd-select" class="game-modifier-select" onchange="setAbsurdMode(this.value)">
+                    <option value="none">None</option>
+                    <option value="bigHead">Big Head Monkey</option>
+                    <option value="tinyAliens">Tiny Aliens</option>
+                    <option value="bananaRain">Banana Rain</option>
+                </select>
+            </div>
+            
             <button class="btn" onclick="backToStart()" style="margin-top: 30px;">BACK</button>
         </div>
     </div>
@@ -459,17 +474,31 @@
         let difficulty = 'medium';
         let startingAdvantage = 'none';
         let startingDisadvantage = 'none';
+        let invincibleOutsideBosses = true;
+        let absurdMode = 'none';
         let curdCodeInput = '';
+        let breachFlash = 0;
+        let bananaDamageMultiplier = 1;
+        let maxBananas = 64;
+        let alienSizeMultiplier = 1;
         
-        let monkey = {
-            x: canvas.width / 2 - 25,
-            y: canvas.height - 80,
+        const baseMonkeyStats = {
             width: 50,
             height: 50,
             speed: 6,
             throwRate: 200,
+            bananaSpeed: 8
+        };
+        
+        let monkey = {
+            x: canvas.width / 2 - 25,
+            y: canvas.height - 80,
+            width: baseMonkeyStats.width,
+            height: baseMonkeyStats.height,
+            speed: baseMonkeyStats.speed,
+            throwRate: baseMonkeyStats.throwRate,
             throwCooldown: 0,
-            bananaSpeed: 8,
+            bananaSpeed: baseMonkeyStats.bananaSpeed,
             powerups: { double: false, triple: false, rapid: false, range: false, doubleMonkey: false, gun: false, bazooka: false },
             monkeyCount: 1
         };
@@ -562,10 +591,48 @@
             collectedItems = [];
             monkey.powerups = { double: false, triple: false, rapid: false, range: false, doubleMonkey: false, gun: false, bazooka: false };
             monkey.monkeyCount = 1;
+            monkey.width = baseMonkeyStats.width;
+            monkey.height = baseMonkeyStats.height;
+            monkey.speed = baseMonkeyStats.speed;
+            monkey.throwRate = baseMonkeyStats.throwRate;
+            monkey.throwCooldown = 0;
+            monkey.bananaSpeed = baseMonkeyStats.bananaSpeed;
+            bananaDamageMultiplier = 1;
+            maxBananas = 64;
+            alienSizeMultiplier = 1;
             
             if (startingAdvantage !== 'none') {
                 monkey.powerups[startingAdvantage] = true;
             }
+            
+            if (startingDisadvantage === 'slowSpeed') {
+                monkey.speed *= 0.7;
+            }
+            
+            if (startingDisadvantage === 'slowThrow') {
+                monkey.throwRate *= 1.5;
+            }
+            
+            if (startingDisadvantage === 'weakBanana') {
+                bananaDamageMultiplier = 0.5;
+            }
+            
+            if (absurdMode === 'bigHead') {
+                monkey.width *= 1.4;
+                monkey.height *= 1.4;
+            }
+            
+            if (absurdMode === 'tinyAliens') {
+                alienSizeMultiplier = 0.7;
+            }
+            
+            if (absurdMode === 'bananaRain') {
+                maxBananas = 120;
+                monkey.throwRate *= 0.8;
+            }
+            
+            monkey.x = canvas.width / 2 - monkey.width / 2;
+            monkey.y = canvas.height - 80 - (monkey.height - baseMonkeyStats.height) / 2;
             
             createAliens();
             updateUI();
@@ -576,6 +643,7 @@
             document.getElementById('startScreen').style.display = 'none';
             document.getElementById('settingsScreen').style.display = 'flex';
             updateDifficultyButtons();
+            updateInvincibleToggle();
         }
         
         function backToStart() {
@@ -600,6 +668,22 @@
         
         function setStartingDisadvantage(dis) {
             startingDisadvantage = dis;
+        }
+        
+        function setAbsurdMode(mode) {
+            absurdMode = mode;
+        }
+        
+        function updateInvincibleToggle() {
+            const button = document.getElementById('invincible-toggle');
+            if (!button) return;
+            button.textContent = invincibleOutsideBosses ? 'ON' : 'OFF';
+            button.classList.toggle('active', invincibleOutsideBosses);
+        }
+        
+        function toggleInvincibleOutsideBosses() {
+            invincibleOutsideBosses = !invincibleOutsideBosses;
+            updateInvincibleToggle();
         }
         
         function toggleDisclosure() {
@@ -655,9 +739,9 @@
             
             const rows = Math.min(3 + Math.floor(level / 2), 5);
             const cols = Math.min(6 + Math.floor(level / 3), 9);
-            const alienWidth = 50;
-            const alienHeight = 45;
-            const padding = 15;
+            const alienWidth = 50 * alienSizeMultiplier;
+            const alienHeight = 45 * alienSizeMultiplier;
+            const padding = 15 * alienSizeMultiplier;
             const startX = (canvas.width - (cols * (alienWidth + padding))) / 2 + 30;
             const startY = 60;
             
@@ -670,6 +754,7 @@
                         height: alienHeight,
                         type: row % 3,
                         alive: true,
+                        hasBreached: false,
                         crying: false,
                         cryTimer: 0,
                         fallSpeed: 0,
@@ -688,7 +773,7 @@
         let alienMoveTimer = 0;
         
         function throwBanana(fromX) {
-            if (monkey.throwCooldown > 0 || bananas.length >= 64) return;
+            if (monkey.throwCooldown > 0 || bananas.length >= maxBananas) return;
             
             const isBazooka = monkey.powerups.bazooka;
             const isGun = monkey.powerups.gun;
@@ -812,6 +897,7 @@
             document.getElementById('levelValue').textContent = level;
             document.getElementById('livesValue').textContent = lives;
             document.getElementById('bananaCount').textContent = bananas.length;
+            document.getElementById('bananaMax').textContent = maxBananas;
             
             Object.keys(monkey.powerups).forEach(key => {
                 const element = document.getElementById(`pw-${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`);
@@ -860,7 +946,8 @@
                         if (banana.x > boss.x && banana.x < boss.x + boss.width &&
                             banana.y > boss.y && banana.y < boss.y + boss.height) {
                             
-                            const damage = banana.isBazooka ? 10 : 5;
+                            const baseDamage = banana.isBazooka ? 10 : 5;
+                            const damage = Math.max(1, Math.round(baseDamage * bananaDamageMultiplier));
                             boss.health -= damage;
                             
                             if (boss.health <= 0) {
@@ -941,12 +1028,21 @@
                 }
                 
                 aliens.forEach(alien => {
-                    if (alien.y + alien.height > canvas.height - 80) {
-                        lives--;
-                        if (lives <= 0) endGame();
+                    const canLoseLife = !invincibleOutsideBosses || (boss && boss.alive);
+                    if (lives > 0 && !alien.hasBreached && alien.y + alien.height > canvas.height - 80) {
+                        alien.hasBreached = true;
+                        alien.alive = false;
+                        alien.y = canvas.height + alien.height;
+                        if (canLoseLife) {
+                            lives--;
+                        }
+                        breachFlash = 1;
+                        createParticles(alien.x + alien.width / 2, canvas.height - 80, '#ff3b3b', 25);
+                        if (canLoseLife && lives === 0) endGame();
                     }
                 });
                 
+                breachFlash = Math.max(0, breachFlash - 0.08);
                 monkey.throwCooldown = Math.max(0, monkey.throwCooldown - 16);
             }
             
@@ -1024,6 +1120,11 @@
             
             drawMonkey();
             
+            if (breachFlash > 0) {
+                ctx.fillStyle = `rgba(255, 80, 80, ${breachFlash * 0.25})`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            
             if (gamePaused) {
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1037,52 +1138,104 @@
         
         function drawMonkey() {
             const monkeyCount = monkey.monkeyCount;
-            const spacing = 60;
+            const spacing = 60 * (monkey.width / baseMonkeyStats.width);
             const startX = monkey.x + monkey.width / 2 - (monkeyCount - 1) * spacing / 2;
             
             for (let m = 0; m < monkeyCount; m++) {
                 ctx.save();
                 ctx.translate(startX + m * spacing, monkey.y + monkey.height / 2);
+                const monkeyScale = monkey.width / baseMonkeyStats.width;
+                ctx.scale(monkeyScale, monkeyScale);
                 
-                ctx.fillStyle = '#8B4513';
+                ctx.shadowColor = 'rgba(255, 204, 160, 0.7)';
+                ctx.shadowBlur = 12;
+                ctx.fillStyle = '#8B5A2B';
                 ctx.beginPath();
                 ctx.ellipse(0, 5, 20, 25, 0, 0, Math.PI * 2);
                 ctx.fill();
                 
-                ctx.fillStyle = '#A0522D';
+                ctx.fillStyle = '#C68642';
                 ctx.beginPath();
                 ctx.arc(0, -15, 18, 0, Math.PI * 2);
                 ctx.fill();
                 
+                ctx.fillStyle = '#F4D7B2';
+                ctx.beginPath();
+                ctx.ellipse(0, 6, 12, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.shadowBlur = 0;
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
-                ctx.arc(-8, -18, 6, 0, Math.PI * 2);
-                ctx.arc(8, -18, 6, 0, Math.PI * 2);
+                ctx.arc(-8, -18, 6.5, 0, Math.PI * 2);
+                ctx.arc(8, -18, 6.5, 0, Math.PI * 2);
                 ctx.fill();
                 
                 ctx.fillStyle = '#000';
                 ctx.beginPath();
-                ctx.arc(-8, -18, 3, 0, Math.PI * 2);
-                ctx.arc(8, -18, 3, 0, Math.PI * 2);
+                ctx.arc(-8, -17.5, 3.2, 0, Math.PI * 2);
+                ctx.arc(8, -17.5, 3.2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(-9, -20, 1.8, 0, Math.PI * 2);
+                ctx.arc(7, -20, 1.8, 0, Math.PI * 2);
                 ctx.fill();
                 
                 ctx.strokeStyle = '#000';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.arc(0, -8, 6, 0, Math.PI);
+                ctx.arc(0, -8, 6.5, 0, Math.PI);
                 ctx.stroke();
                 
-                ctx.fillStyle = '#8B4513';
+                ctx.fillStyle = '#ffb7c5';
+                ctx.globalAlpha = 0.8;
+                ctx.beginPath();
+                ctx.ellipse(-12, -10, 4, 2.5, 0, 0, Math.PI * 2);
+                ctx.ellipse(12, -10, 4, 2.5, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                
+                ctx.fillStyle = '#2d1b00';
+                ctx.beginPath();
+                ctx.arc(0, -6, 2.2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.strokeStyle = '#2d1b00';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, -4, 5, 0, Math.PI);
+                ctx.stroke();
+                
+                ctx.strokeStyle = '#5a3b1a';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(-10, -24);
+                ctx.lineTo(-4, -26);
+                ctx.moveTo(10, -24);
+                ctx.lineTo(4, -26);
+                ctx.stroke();
+                
+                ctx.fillStyle = '#8B5A2B';
                 ctx.beginPath();
                 ctx.arc(-22, -5, 10, 0, Math.PI * 2);
                 ctx.arc(22, -5, 10, 0, Math.PI * 2);
                 ctx.fill();
                 
-                ctx.fillStyle = '#DEB887';
+                ctx.fillStyle = '#F4D7B2';
                 ctx.beginPath();
                 ctx.arc(-22, -5, 6, 0, Math.PI * 2);
                 ctx.arc(22, -5, 6, 0, Math.PI * 2);
                 ctx.fill();
+                
+                ctx.fillStyle = '#fff5e6';
+                ctx.globalAlpha = 0.6;
+                ctx.beginPath();
+                ctx.arc(-24, -7, 2, 0, Math.PI * 2);
+                ctx.arc(20, -7, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
                 
                 if (monkey.powerups.bazooka) {
                     ctx.fillStyle = '#444';
