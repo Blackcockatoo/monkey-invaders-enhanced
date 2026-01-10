@@ -360,7 +360,7 @@
         </div>
         
         <div class="banana-counter">
-            🍌 <span id="bananaCount">0</span>/64
+            🍌 <span id="bananaCount">0</span>/<span id="bananaMax">64</span>
         </div>
         
         <div id="powerupDisplay">
@@ -432,6 +432,21 @@
                 </select>
             </div>
             
+            <div style="margin-bottom: 30px; text-align: center;">
+                <h3 style="color: #fff; margin-bottom: 15px;">Invincible Outside Bosses</h3>
+                <button class="btn-setting active" id="invincible-toggle" onclick="toggleInvincibleOutsideBosses()">ON</button>
+            </div>
+            
+            <div style="margin-bottom: 30px; text-align: center;">
+                <h3 style="color: #fff; margin-bottom: 15px;">Absurd Mode</h3>
+                <select id="absurd-select" class="game-modifier-select" onchange="setAbsurdMode(this.value)">
+                    <option value="none">None</option>
+                    <option value="bigHead">Big Head Monkey</option>
+                    <option value="tinyAliens">Tiny Aliens</option>
+                    <option value="bananaRain">Banana Rain</option>
+                </select>
+            </div>
+            
             <button class="btn" onclick="backToStart()" style="margin-top: 30px;">BACK</button>
         </div>
     </div>
@@ -459,18 +474,28 @@
         let difficulty = 'medium';
         let startingAdvantage = 'none';
         let startingDisadvantage = 'none';
+        let allowDeathsOutsideBoss = false;
+        let absurdMode = 'none';
         let curdCodeInput = '';
         let breachFlash = 0;
         
-        let monkey = {
-            x: canvas.width / 2 - 25,
-            y: canvas.height - 80,
+        const baseMonkeyStats = {
             width: 50,
             height: 50,
             speed: 6,
             throwRate: 200,
+            bananaSpeed: 8
+        };
+        
+        let monkey = {
+            x: canvas.width / 2 - 25,
+            y: canvas.height - 80,
+            width: baseMonkeyStats.width,
+            height: baseMonkeyStats.height,
+            speed: baseMonkeyStats.speed,
+            throwRate: baseMonkeyStats.throwRate,
             throwCooldown: 0,
-            bananaSpeed: 8,
+            bananaSpeed: baseMonkeyStats.bananaSpeed,
             powerups: { double: false, triple: false, rapid: false, range: false, doubleMonkey: false, gun: false, bazooka: false },
             monkeyCount: 1
         };
@@ -563,10 +588,48 @@
             collectedItems = [];
             monkey.powerups = { double: false, triple: false, rapid: false, range: false, doubleMonkey: false, gun: false, bazooka: false };
             monkey.monkeyCount = 1;
+            monkey.width = baseMonkeyStats.width;
+            monkey.height = baseMonkeyStats.height;
+            monkey.speed = baseMonkeyStats.speed;
+            monkey.throwRate = baseMonkeyStats.throwRate;
+            monkey.throwCooldown = 0;
+            monkey.bananaSpeed = baseMonkeyStats.bananaSpeed;
+            bananaDamageMultiplier = 1;
+            maxBananas = 64;
+            alienSizeMultiplier = 1;
             
             if (startingAdvantage !== 'none') {
                 monkey.powerups[startingAdvantage] = true;
             }
+            
+            if (startingDisadvantage === 'slowSpeed') {
+                monkey.speed *= 0.7;
+            }
+            
+            if (startingDisadvantage === 'slowThrow') {
+                monkey.throwRate *= 1.5;
+            }
+            
+            if (startingDisadvantage === 'weakBanana') {
+                bananaDamageMultiplier = 0.5;
+            }
+            
+            if (absurdMode === 'bigHead') {
+                monkey.width *= 1.4;
+                monkey.height *= 1.4;
+            }
+            
+            if (absurdMode === 'tinyAliens') {
+                alienSizeMultiplier = 0.7;
+            }
+            
+            if (absurdMode === 'bananaRain') {
+                maxBananas = 120;
+                monkey.throwRate *= 0.8;
+            }
+            
+            monkey.x = canvas.width / 2 - monkey.width / 2;
+            monkey.y = canvas.height - 80 - (monkey.height - baseMonkeyStats.height) / 2;
             
             createAliens();
             updateUI();
@@ -577,6 +640,7 @@
             document.getElementById('startScreen').style.display = 'none';
             document.getElementById('settingsScreen').style.display = 'flex';
             updateDifficultyButtons();
+            updateInvincibleToggle();
         }
         
         function backToStart() {
@@ -601,6 +665,23 @@
         
         function setStartingDisadvantage(dis) {
             startingDisadvantage = dis;
+        }
+        
+        function setAbsurdMode(mode) {
+            absurdMode = mode;
+        }
+        
+        function updateInvincibleToggle() {
+            const button = document.getElementById('invincible-toggle');
+            if (!button) return;
+            const isInvincibleOutsideBoss = !allowDeathsOutsideBoss;
+            button.textContent = isInvincibleOutsideBoss ? 'ON' : 'OFF';
+            button.classList.toggle('active', isInvincibleOutsideBoss);
+        }
+        
+        function toggleInvincibleOutsideBosses() {
+            allowDeathsOutsideBoss = !allowDeathsOutsideBoss;
+            updateInvincibleToggle();
         }
         
         function toggleDisclosure() {
@@ -656,9 +737,9 @@
             
             const rows = Math.min(3 + Math.floor(level / 2), 5);
             const cols = Math.min(6 + Math.floor(level / 3), 9);
-            const alienWidth = 50;
-            const alienHeight = 45;
-            const padding = 15;
+            const alienWidth = 50 * alienSizeMultiplier;
+            const alienHeight = 45 * alienSizeMultiplier;
+            const padding = 15 * alienSizeMultiplier;
             const startX = (canvas.width - (cols * (alienWidth + padding))) / 2 + 30;
             const startY = 60;
             
@@ -690,7 +771,7 @@
         let alienMoveTimer = 0;
         
         function throwBanana(fromX) {
-            if (monkey.throwCooldown > 0 || bananas.length >= 64) return;
+            if (monkey.throwCooldown > 0 || bananas.length >= maxBananas) return;
             
             const isBazooka = monkey.powerups.bazooka;
             const isGun = monkey.powerups.gun;
@@ -814,6 +895,7 @@
             document.getElementById('levelValue').textContent = level;
             document.getElementById('livesValue').textContent = lives;
             document.getElementById('bananaCount').textContent = bananas.length;
+            document.getElementById('bananaMax').textContent = maxBananas;
             
             Object.keys(monkey.powerups).forEach(key => {
                 const element = document.getElementById(`pw-${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`);
@@ -862,7 +944,8 @@
                         if (banana.x > boss.x && banana.x < boss.x + boss.width &&
                             banana.y > boss.y && banana.y < boss.y + boss.height) {
                             
-                            const damage = banana.isBazooka ? 10 : 5;
+                            const baseDamage = banana.isBazooka ? 10 : 5;
+                            const damage = Math.max(1, Math.round(baseDamage * bananaDamageMultiplier));
                             boss.health -= damage;
                             
                             if (boss.health <= 0) {
@@ -1050,12 +1133,14 @@
         
         function drawMonkey() {
             const monkeyCount = monkey.monkeyCount;
-            const spacing = 60;
+            const spacing = 60 * (monkey.width / baseMonkeyStats.width);
             const startX = monkey.x + monkey.width / 2 - (monkeyCount - 1) * spacing / 2;
             
             for (let m = 0; m < monkeyCount; m++) {
                 ctx.save();
                 ctx.translate(startX + m * spacing, monkey.y + monkey.height / 2);
+                const monkeyScale = monkey.width / baseMonkeyStats.width;
+                ctx.scale(monkeyScale, monkeyScale);
                 
                 ctx.shadowColor = 'rgba(255, 204, 128, 0.6)';
                 ctx.shadowBlur = 12;
