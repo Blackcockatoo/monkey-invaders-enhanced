@@ -474,13 +474,10 @@
         let difficulty = 'medium';
         let startingAdvantage = 'none';
         let startingDisadvantage = 'none';
-        let invincibleOutsideBosses = true;
+        let allowDeathsOutsideBoss = false;
         let absurdMode = 'none';
         let curdCodeInput = '';
         let breachFlash = 0;
-        let bananaDamageMultiplier = 1;
-        let maxBananas = 64;
-        let alienSizeMultiplier = 1;
         
         const baseMonkeyStats = {
             width: 50,
@@ -677,12 +674,13 @@
         function updateInvincibleToggle() {
             const button = document.getElementById('invincible-toggle');
             if (!button) return;
-            button.textContent = invincibleOutsideBosses ? 'ON' : 'OFF';
-            button.classList.toggle('active', invincibleOutsideBosses);
+            const isInvincibleOutsideBoss = !allowDeathsOutsideBoss;
+            button.textContent = isInvincibleOutsideBoss ? 'ON' : 'OFF';
+            button.classList.toggle('active', isInvincibleOutsideBoss);
         }
         
         function toggleInvincibleOutsideBosses() {
-            invincibleOutsideBosses = !invincibleOutsideBosses;
+            allowDeathsOutsideBoss = !allowDeathsOutsideBoss;
             updateInvincibleToggle();
         }
         
@@ -1028,17 +1026,14 @@
                 }
                 
                 aliens.forEach(alien => {
-                    const canLoseLife = !invincibleOutsideBosses || (boss && boss.alive);
                     if (lives > 0 && !alien.hasBreached && alien.y + alien.height > canvas.height - 80) {
                         alien.hasBreached = true;
                         alien.alive = false;
                         alien.y = canvas.height + alien.height;
-                        if (canLoseLife) {
-                            lives--;
-                        }
+                        lives--;
                         breachFlash = 1;
                         createParticles(alien.x + alien.width / 2, canvas.height - 80, '#ff3b3b', 25);
-                        if (canLoseLife && lives === 0) endGame();
+                        if (lives === 0) endGame();
                     }
                 });
                 
@@ -1147,9 +1142,9 @@
                 const monkeyScale = monkey.width / baseMonkeyStats.width;
                 ctx.scale(monkeyScale, monkeyScale);
                 
-                ctx.shadowColor = 'rgba(255, 204, 160, 0.7)';
+                ctx.shadowColor = 'rgba(255, 204, 128, 0.6)';
                 ctx.shadowBlur = 12;
-                ctx.fillStyle = '#8B5A2B';
+                ctx.fillStyle = '#8B4513';
                 ctx.beginPath();
                 ctx.ellipse(0, 5, 20, 25, 0, 0, Math.PI * 2);
                 ctx.fill();
@@ -1157,11 +1152,6 @@
                 ctx.fillStyle = '#C68642';
                 ctx.beginPath();
                 ctx.arc(0, -15, 18, 0, Math.PI * 2);
-                ctx.fill();
-                
-                ctx.fillStyle = '#F4D7B2';
-                ctx.beginPath();
-                ctx.ellipse(0, 6, 12, 10, 0, 0, Math.PI * 2);
                 ctx.fill();
                 
                 ctx.shadowBlur = 0;
@@ -1181,6 +1171,12 @@
                 ctx.beginPath();
                 ctx.arc(-9, -20, 1.8, 0, Math.PI * 2);
                 ctx.arc(7, -20, 1.8, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(-9, -20, 1.5, 0, Math.PI * 2);
+                ctx.arc(7, -20, 1.5, 0, Math.PI * 2);
                 ctx.fill();
                 
                 ctx.strokeStyle = '#000';
@@ -1208,16 +1204,20 @@
                 ctx.arc(0, -4, 5, 0, Math.PI);
                 ctx.stroke();
                 
-                ctx.strokeStyle = '#5a3b1a';
-                ctx.lineWidth = 2;
+                ctx.fillStyle = '#ff9aa2';
+                ctx.globalAlpha = 0.7;
                 ctx.beginPath();
-                ctx.moveTo(-10, -24);
-                ctx.lineTo(-4, -26);
-                ctx.moveTo(10, -24);
-                ctx.lineTo(4, -26);
-                ctx.stroke();
+                ctx.ellipse(-12, -10, 4, 2.5, 0, 0, Math.PI * 2);
+                ctx.ellipse(12, -10, 4, 2.5, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
                 
-                ctx.fillStyle = '#8B5A2B';
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(0, -6, 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#8B4513';
                 ctx.beginPath();
                 ctx.arc(-22, -5, 10, 0, Math.PI * 2);
                 ctx.arc(22, -5, 10, 0, Math.PI * 2);
