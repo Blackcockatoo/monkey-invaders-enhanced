@@ -741,7 +741,7 @@
             const alienHeight = 45 * alienSizeMultiplier;
             const padding = 15 * alienSizeMultiplier;
             const startX = (canvas.width - (cols * (alienWidth + padding))) / 2 + 30;
-            const startY = 60;
+            const startY = 40;
             
             for (let row = 0; row < rows; row++) {
                 for (let col = 0; col < cols; col++) {
@@ -763,7 +763,7 @@
             }
             
             alienDirection = 1;
-            alienSpeed = (0.5 + level * 0.12) * difficultySettings[difficulty].speedMultiplier;
+            alienSpeed = (0.5 + level * 0.08) * difficultySettings[difficulty].speedMultiplier;
         }
         
         let alienDirection = 1;
@@ -1001,7 +1001,7 @@
                     }
                 });
                 
-                aliens = aliens.filter(alien => alien.y < canvas.height);
+                aliens = aliens.filter(alien => alien.y < canvas.height + 50);
                 
                 if (boss && boss.alive) {
                     boss.x += boss.speed * boss.direction;
@@ -1026,10 +1026,14 @@
                 }
                 
                 aliens.forEach(alien => {
+<<<<<<< Updated upstream
                     if (lives > 0 && !alien.hasBreached && alien.y + alien.height > canvas.height - 80) {
                         alien.hasBreached = true;
                         alien.alive = false;
                         alien.y = canvas.height + alien.height;
+=======
+                    if (alien.y + alien.height > canvas.height - 100) {
+>>>>>>> Stashed changes
                         lives--;
                         breachFlash = 1;
                         createParticles(alien.x + alien.width / 2, canvas.height - 80, '#ff3b3b', 25);
