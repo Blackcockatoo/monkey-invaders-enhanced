@@ -56,6 +56,21 @@
             text-shadow: 0 0 10px rgba(255, 200, 0, 0.8);
         }
         
+        #scoreValue {
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        
+        #scoreValue:active {
+            transform: scale(0.95);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); color: #ff00ff; }
+        }
+        
         .score { color: #ffd700; }
         .level { color: #00ff88; }
         .lives { color: #ff6b6b; }
@@ -546,9 +561,20 @@
         
         let collectedItems = [];
         const keys = {};
+        let tapCount = 0;
+        let lastTapTime = 0;
         
         document.addEventListener('keydown', handleKeyDown);
         document.addEventListener('keyup', handleKeyUp);
+        
+        // Mobile cheat activation
+        setTimeout(() => {
+            const scoreElement = document.getElementById('scoreValue');
+            if (scoreElement) {
+                scoreElement.addEventListener('click', handleScoreTap);
+                scoreElement.addEventListener('touchstart', handleScoreTap);
+            }
+        }, 100);
         
         function handleKeyDown(e) {
             keys[e.key.toLowerCase()] = true;
@@ -575,6 +601,27 @@
         function handleKeyUp(e) {
             keys[e.key.toLowerCase()] = false;
         }
+        
+        function handleScoreTap(e) {
+            const now = Date.now();
+            if (now - lastTapTime > 500) {
+                tapCount = 1;
+            } else {
+                tapCount++;
+            }
+            lastTapTime = now;
+            
+            if (tapCount === 3) {
+                activateGodMode();
+                tapCount = 0;
+                e.target.style.animation = 'none';
+                setTimeout(() => {
+                    e.target.style.animation = 'pulse 0.5s ease';
+                }, 10);
+            }
+        }
+        
+
         
         function startGame() {
             document.getElementById('startScreen').style.display = 'none';
