@@ -1,19 +1,36 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   MonkeyInvadersEngine,
   type Action,
   type CabinetStatus,
   type PilotId,
 } from "@/game/MonkeyInvadersEngine";
+import { MODE_LABELS } from "@/game/content";
 
 const HOLD_ACTIONS = new Set<Action>(["left", "right", "fire"]);
 const INITIAL_STATUS: CabinetStatus = {
-  state: "title",
+  state: "boot",
   pilot: "bolt",
+  mode: "classic",
   score: 0,
   highScore: 0,
   wave: 1,
   lives: 3,
+  credits: 0,
+};
+
+const PILOT_LABELS: Record<PilotId, string> = {
+  bolt: "BLUE / BOLT",
+  nova: "PINK / NOVA",
+  rex: "AMBER / REX",
+  glitch: "GREEN / GLITCH",
 };
 
 export default function Home() {
@@ -32,8 +49,14 @@ export default function Home() {
     return () => engine.destroy();
   }, []);
 
-  const press = useCallback((action: Action) => engineRef.current?.press(action), []);
-  const release = useCallback((action: Action) => engineRef.current?.release(action), []);
+  const press = useCallback(
+    (action: Action) => engineRef.current?.press(action),
+    []
+  );
+  const release = useCallback(
+    (action: Action) => engineRef.current?.release(action),
+    []
+  );
   const bind = (action: Action) => ({
     onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -46,10 +69,12 @@ export default function Home() {
     },
     onPointerCancel: () => release(action),
     onPointerLeave: () => HOLD_ACTIONS.has(action) && release(action),
-    onContextMenu: (event: ReactMouseEvent<HTMLButtonElement>) => event.preventDefault(),
+    onContextMenu: (event: ReactMouseEvent<HTMLButtonElement>) =>
+      event.preventDefault(),
   });
 
   const cyclePilot = () => engineRef.current?.cyclePilot();
+  const cycleMode = () => engineRef.current?.cycleMode();
   const setPilot = (pilot: PilotId) => engineRef.current?.selectPilot(pilot);
   const toggleMute = () => {
     const next = !muted;
@@ -57,8 +82,9 @@ export default function Home() {
     engineRef.current?.setMuted(next);
   };
 
-  const online = status.state !== "title";
-  const pilotLabel = status.pilot === "bolt" ? "BLUE / BOLT" : "PINK / NOVA";
+  const online = status.state !== "title" && status.state !== "boot";
+  const pilotLabel = PILOT_LABELS[status.pilot];
+  const modeLabel = MODE_LABELS[status.mode];
 
   return (
     <main className={`arcade-page pilot-${status.pilot}`}>
@@ -71,13 +97,19 @@ export default function Home() {
       </div>
 
       <header className="top-rail">
-        <div className="studio-mark"><span>B$S</span> BLUE $NAKE ARCADE</div>
-        <div className="machine-status"><i /> TWIN SIGNAL <strong>002</strong></div>
+        <div className="studio-mark">
+          <span>B$S</span> BLUE $NAKE ARCADE
+        </div>
+        <div className="machine-status">
+          <i /> TWIN SIGNAL <strong>002</strong>
+        </div>
       </header>
 
       <section className="cabinet" aria-label="Monkey Invaders arcade cabinet">
         <div className="cabinet-crown" aria-hidden="true">
-          <span>★</span><b>MONKEY INVADERS</b><span>★</span>
+          <span>★</span>
+          <b>MONKEY INVADERS</b>
+          <span>★</span>
         </div>
 
         <div className="play-layout">
@@ -97,23 +129,64 @@ export default function Home() {
 
           <div className="control-deck">
             <div className="dpad" aria-label="Movement controls">
-              <button type="button" aria-label="Move left" {...bind("left")}><span>◀</span></button>
-              <button type="button" aria-label="Move right" {...bind("right")}><span>▶</span></button>
+              <button type="button" aria-label="Move left" {...bind("left")}>
+                <span>◀</span>
+              </button>
+              <button type="button" aria-label="Move right" {...bind("right")}>
+                <span>▶</span>
+              </button>
             </div>
 
             <div className="mini-controls">
-              <button type="button" onClick={() => press("start")}>START</button>
-              <button type="button" className="pilot-switch" onClick={cyclePilot}>PILOT<br /><strong>{pilotLabel}</strong></button>
-              <button type="button" onClick={() => press("pause")}>ARCHIVE<br />PAUSE</button>
-              <button type="button" aria-pressed={muted} onClick={toggleMute}>{muted ? "SOUND OFF" : "SOUND ON"}</button>
+              <button type="button" onClick={() => press("start")}>
+                START
+              </button>
+              <button
+                type="button"
+                className="pilot-switch"
+                onClick={cyclePilot}
+              >
+                PILOT
+                <br />
+                <strong>{pilotLabel}</strong>
+              </button>
+              <button
+                type="button"
+                className="pilot-switch"
+                onClick={cycleMode}
+              >
+                MODE
+                <br />
+                <strong>{modeLabel}</strong>
+              </button>
+              <button type="button" onClick={() => press("pause")}>
+                ARCHIVE
+                <br />
+                PAUSE
+              </button>
+              <button type="button" aria-pressed={muted} onClick={toggleMute}>
+                {muted ? "SOUND OFF" : "SOUND ON"}
+              </button>
             </div>
 
             <div className="action-controls" aria-label="Action controls">
-              <button className="fire" type="button" aria-label="Throw banana" {...bind("fire")}>
-                <span>🍌</span><small>FIRE</small>
+              <button
+                className="fire"
+                type="button"
+                aria-label="Throw banana"
+                {...bind("fire")}
+              >
+                <span>🍌</span>
+                <small>FIRE</small>
               </button>
-              <button className="blast" type="button" aria-label="Banana blast" {...bind("special")}>
-                <span>★</span><small>BLAST</small>
+              <button
+                className="blast"
+                type="button"
+                aria-label="Banana blast"
+                {...bind("special")}
+              >
+                <span>★</span>
+                <small>BLAST</small>
               </button>
             </div>
           </div>
@@ -121,19 +194,35 @@ export default function Home() {
       </section>
 
       <div className="pilot-choice" aria-label="Pilot channel selection">
-        <button className={status.pilot === "bolt" ? "active" : ""} onClick={() => setPilot("bolt")} type="button">
+        <button
+          className={status.pilot === "bolt" ? "active" : ""}
+          onClick={() => setPilot("bolt")}
+          type="button"
+        >
           <span className="pilot-dot blue" /> BOLT
         </button>
         <p>Two signals. Same cabinet. Pick the one that feels right.</p>
-        <button className={status.pilot === "nova" ? "active" : ""} onClick={() => setPilot("nova")} type="button">
+        <button
+          className={status.pilot === "nova" ? "active" : ""}
+          onClick={() => setPilot("nova")}
+          type="button"
+        >
           NOVA <span className="pilot-dot pink" />
         </button>
       </div>
 
       <footer className="machine-footer">
-        <p>{online ? "CABINET ONLINE" : "WARMING TUBES"} · WAVE {status.wave} · HI {String(status.highScore).padStart(7, "0")}</p>
-        <p className="desktop-hint">MOVE A/D OR ←/→ · FIRE SPACE/X/Z · BLAST C/W/↑ · ENTER START · P PAUSE · Q PILOT</p>
-        <p className="mobile-hint">MULTI-TOUCH READY · TURN LANDSCAPE FOR THE FULL CABINET</p>
+        <p>
+          {online ? "CABINET ONLINE" : "WARMING TUBES"} · {modeLabel} · WAVE{" "}
+          {status.wave} · HI {String(status.highScore).padStart(7, "0")}
+        </p>
+        <p className="desktop-hint">
+          MOVE A/D OR ←/→ · FIRE SPACE/X/Z · BLAST C/W/↑ · ENTER START · P PAUSE
+          · Q PILOT · M MODE · I INFO
+        </p>
+        <p className="mobile-hint">
+          MULTI-TOUCH READY · TURN LANDSCAPE FOR THE FULL CABINET
+        </p>
       </footer>
 
       <div className="rotate-card" role="note">
