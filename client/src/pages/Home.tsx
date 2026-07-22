@@ -1,179 +1,146 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  MonkeyInvadersEngine,
+  type Action,
+  type CabinetStatus,
+  type PilotId,
+} from "@/game/MonkeyInvadersEngine";
+
+const HOLD_ACTIONS = new Set<Action>(["left", "right", "fire"]);
+const INITIAL_STATUS: CabinetStatus = {
+  state: "title",
+  pilot: "bolt",
+  score: 0,
+  highScore: 0,
+  wave: 1,
+  lives: 3,
+};
 
 export default function Home() {
-  const [newsItems, setNewsItems] = useState([
-    {
-      id: 1,
-      title: "🐵 Monkey Invaders Enhanced Released!",
-      description: "The ultimate banana-throwing adventure is here with 13 unique bosses, strategic progression, and hidden easter eggs.",
-      date: "Jan 11, 2026"
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const engineRef = useRef<MonkeyInvadersEngine | null>(null);
+  const [status, setStatus] = useState<CabinetStatus>(INITIAL_STATUS);
+  const [muted, setMuted] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const engine = new MonkeyInvadersEngine(canvas, setStatus);
+    engineRef.current = engine;
+    setMuted(engine.isMuted());
+    engine.start();
+    return () => engine.destroy();
+  }, []);
+
+  const press = useCallback((action: Action) => engineRef.current?.press(action), []);
+  const release = useCallback((action: Action) => engineRef.current?.release(action), []);
+  const bind = (action: Action) => ({
+    onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      press(action);
     },
-    {
-      id: 2,
-      title: "⚡ New Boss System Introduced",
-      description: "Every 10 levels, face a randomly selected boss from our roster of 13 unique alien invaders. Each boss has unique abilities and colors!",
-      date: "Jan 10, 2026"
+    onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      release(action);
     },
-    {
-      id: 3,
-      title: "🎮 Collectible Items Now Available",
-      description: "Defeat aliens to unlock 20 funny and ridiculous collectible items. Find them all and unlock special achievements!",
-      date: "Jan 9, 2026"
-    },
-    {
-      id: 4,
-      title: "🍌 Banana Limit Implemented",
-      description: "Maximum 64 bananas on screen to prevent glitching. Strategic throwing is now key to victory!",
-      date: "Jan 8, 2026"
-    },
-    {
-      id: 5,
-      title: "🎯 Difficulty Settings Enhanced",
-      description: "Choose from Easy, Medium, or Hard difficulty. Add starting advantages or disadvantages for a custom challenge!",
-      date: "Jan 7, 2026"
-    }
-  ]);
+    onPointerCancel: () => release(action),
+    onPointerLeave: () => HOLD_ACTIONS.has(action) && release(action),
+    onContextMenu: (event: ReactMouseEvent<HTMLButtonElement>) => event.preventDefault(),
+  });
+
+  const cyclePilot = () => engineRef.current?.cyclePilot();
+  const setPilot = (pilot: PilotId) => engineRef.current?.selectPilot(pilot);
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    engineRef.current?.setMuted(next);
+  };
+
+  const online = status.state !== "title";
+  const pilotLabel = status.pilot === "bolt" ? "BLUE / BOLT" : "PINK / NOVA";
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
-      {/* Header Section */}
-      <div className="text-center space-y-8 px-4 pt-16 pb-12">
-        <div className="text-8xl animate-bounce">🐵🍌👽</div>
-        
-        <h1 className="text-6xl font-bold text-yellow-400 drop-shadow-lg">
-          MONKEY INVADERS
-        </h1>
-        
-        <p className="text-2xl text-gray-300 max-w-2xl mx-auto">
-          Defend Earth with the power of bananas! Defeat waves of aliens, unlock powerful powerups, and face epic bosses every 10 levels.
-        </p>
-        
-        <div className="space-y-4 pt-8">
-          <a href="/game.html" target="_blank" rel="noopener noreferrer">
-            <Button 
-              size="lg"
-              className="text-2xl px-12 py-8 bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold rounded-full shadow-2xl"
-            >
-              🎮 PLAY GAME
-            </Button>
-          </a>
-        </div>
+    <main className={`arcade-page pilot-${status.pilot}`}>
+      <div className="arcade-room" aria-hidden="true">
+        <i className="room-glow room-glow-blue" />
+        <i className="room-glow room-glow-pink" />
+        <i className="room-grid" />
+        <i className="ghost-cabinet ghost-one" />
+        <i className="ghost-cabinet ghost-two" />
       </div>
 
-      {/* Features Section */}
-      <div className="max-w-6xl mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
-          <Card className="bg-slate-800 border-orange-500/50">
-            <CardHeader>
-              <CardTitle className="text-yellow-400">⚡ 13 Unique Bosses</CardTitle>
-            </CardHeader>
-            <CardContent className="text-gray-300">
-              Face random boss encounters every 10 levels. Zorg, Krell, Vex, Nexus, and 9 more legendary aliens await!
-            </CardContent>
-          </Card>
+      <header className="top-rail">
+        <div className="studio-mark"><span>B$S</span> BLUE $NAKE ARCADE</div>
+        <div className="machine-status"><i /> TWIN SIGNAL <strong>002</strong></div>
+      </header>
 
-          <Card className="bg-slate-800 border-orange-500/50">
-            <CardHeader>
-              <CardTitle className="text-yellow-400">🍌 64 Banana Limit</CardTitle>
-            </CardHeader>
-            <CardContent className="text-gray-300">
-              Strategic banana throwing prevents glitching. Master your aim and timing to maximize damage!
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-800 border-orange-500/50">
-            <CardHeader>
-              <CardTitle className="text-yellow-400">🎯 3 Difficulty Levels</CardTitle>
-            </CardHeader>
-            <CardContent className="text-gray-300">
-              Easy, Medium, or Hard. Add starting advantages or disadvantages for ultimate customization!
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-800 border-orange-500/50">
-            <CardHeader>
-              <CardTitle className="text-yellow-400">💥 7 Powerups</CardTitle>
-            </CardHeader>
-            <CardContent className="text-gray-300">
-              Double Banana, Triple Banana, Rapid Fire, Long Range, Double Monkey, Gun, and Bazooka!
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-800 border-orange-500/50">
-            <CardHeader>
-              <CardTitle className="text-yellow-400">📈 Progressive Difficulty</CardTitle>
-            </CardHeader>
-            <CardContent className="text-gray-300">
-              Each level brings more aliens, faster speeds, and strategic challenges. Never gets boring!
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-800 border-orange-500/50">
-            <CardHeader>
-              <CardTitle className="text-yellow-400">🎪 Collectible Items</CardTitle>
-            </CardHeader>
-            <CardContent className="text-gray-300">
-              Unlock 20 funny and ridiculous items. Golden Banana, Rubber Chicken, Rocket Boots, and more!
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* BNN News Feed Section */}
-      <div className="max-w-4xl mx-auto px-4 py-12">
-        <div className="mb-8">
-          <h2 className="text-4xl font-bold text-yellow-400 mb-2">📰 BNN - Banana News Network</h2>
-          <p className="text-gray-400">Latest updates from the Monkey Invaders universe</p>
+      <section className="cabinet" aria-label="Monkey Invaders arcade cabinet">
+        <div className="cabinet-crown" aria-hidden="true">
+          <span>★</span><b>MONKEY INVADERS</b><span>★</span>
         </div>
 
-        <div className="space-y-4">
-          {newsItems.map((item) => (
-            <Card key={item.id} className="bg-slate-800 border-yellow-500/30 hover:border-yellow-500/60 transition-colors">
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <CardTitle className="text-yellow-400 text-lg">{item.title}</CardTitle>
-                  <span className="text-gray-500 text-sm">{item.date}</span>
-                </div>
-              </CardHeader>
-              <CardContent className="text-gray-300">
-                {item.description}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+        <div className="play-layout">
+          <div className="screen-bezel">
+            <div className="screen-wrap">
+              <canvas
+                ref={canvasRef}
+                width={960}
+                height={540}
+                aria-label="Playable Monkey Invaders game"
+                tabIndex={0}
+              />
+              <div className="screen-glass" aria-hidden="true" />
+              <div className="scanlines" aria-hidden="true" />
+            </div>
+          </div>
 
-      {/* Controls Section */}
-      <div className="max-w-4xl mx-auto px-4 py-12 text-center">
-        <div className="bg-slate-800 border border-orange-500/30 rounded-lg p-8">
-          <h3 className="text-2xl font-bold text-yellow-400 mb-4">🎮 Game Controls</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-300">
-            <div>
-              <p className="font-semibold text-orange-400">← → or A D</p>
-              <p>Move Left / Right</p>
+          <div className="control-deck">
+            <div className="dpad" aria-label="Movement controls">
+              <button type="button" aria-label="Move left" {...bind("left")}><span>◀</span></button>
+              <button type="button" aria-label="Move right" {...bind("right")}><span>▶</span></button>
             </div>
-            <div>
-              <p className="font-semibold text-orange-400">SPACE</p>
-              <p>Throw Banana</p>
+
+            <div className="mini-controls">
+              <button type="button" onClick={() => press("start")}>START</button>
+              <button type="button" className="pilot-switch" onClick={cyclePilot}>PILOT<br /><strong>{pilotLabel}</strong></button>
+              <button type="button" onClick={() => press("pause")}>ARCHIVE<br />PAUSE</button>
+              <button type="button" aria-pressed={muted} onClick={toggleMute}>{muted ? "SOUND OFF" : "SOUND ON"}</button>
             </div>
-            <div>
-              <p className="font-semibold text-orange-400">P</p>
-              <p>Pause Game</p>
-            </div>
-            <div>
-              <p className="font-semibold text-orange-400">Type "curd"</p>
-              <p>Unlock Kong Mode (Easter Egg!)</p>
+
+            <div className="action-controls" aria-label="Action controls">
+              <button className="fire" type="button" aria-label="Throw banana" {...bind("fire")}>
+                <span>🍌</span><small>FIRE</small>
+              </button>
+              <button className="blast" type="button" aria-label="Banana blast" {...bind("special")}>
+                <span>★</span><small>BLAST</small>
+              </button>
             </div>
           </div>
         </div>
+      </section>
+
+      <div className="pilot-choice" aria-label="Pilot channel selection">
+        <button className={status.pilot === "bolt" ? "active" : ""} onClick={() => setPilot("bolt")} type="button">
+          <span className="pilot-dot blue" /> BOLT
+        </button>
+        <p>Two signals. Same cabinet. Pick the one that feels right.</p>
+        <button className={status.pilot === "nova" ? "active" : ""} onClick={() => setPilot("nova")} type="button">
+          NOVA <span className="pilot-dot pink" />
+        </button>
       </div>
 
-      {/* Footer */}
-      <div className="text-center py-8 text-gray-500 text-sm border-t border-slate-700">
-        <p>Made with 🍌 by Murphy and Clark Curd | Monkey Invaders Enhanced © 2026</p>
+      <footer className="machine-footer">
+        <p>{online ? "CABINET ONLINE" : "WARMING TUBES"} · WAVE {status.wave} · HI {String(status.highScore).padStart(7, "0")}</p>
+        <p className="desktop-hint">MOVE A/D OR ←/→ · FIRE SPACE/X/Z · BLAST C/W/↑ · ENTER START · P PAUSE · Q PILOT</p>
+        <p className="mobile-hint">MULTI-TOUCH READY · TURN LANDSCAPE FOR THE FULL CABINET</p>
+      </footer>
+
+      <div className="rotate-card" role="note">
+        <b>TURN THE CABINET</b>
+        <span>Monkey Invaders is made for comfortable landscape play.</span>
+        <div>↻</div>
       </div>
-    </div>
+    </main>
   );
 }
