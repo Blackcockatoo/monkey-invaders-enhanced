@@ -498,6 +498,7 @@
         let absurdMode = 'none';
         let curdCodeInput = '';
         let breachFlash = 0;
+        let maxBananas = 64;
         
         const baseMonkeyStats = {
             width: 50,
@@ -633,6 +634,7 @@
             score = 0;
             level = 1;
             lives = 3;
+            lastTime = 0;
             aliens = [];
             bananas = [];
             particles = [];
@@ -957,9 +959,12 @@
             });
         }
         
-        function gameLoop() {
+        function gameLoop(timestamp) {
             if (!gameRunning) return;
-            
+
+            const deltaTime = lastTime ? Math.min(timestamp - lastTime, 100) : 16;
+            lastTime = timestamp || performance.now();
+
             if (!gamePaused) {
                 if (keys['arrowleft'] || keys['a']) monkey.x = Math.max(0, monkey.x - monkey.speed);
                 if (keys['arrowright'] || keys['d']) monkey.x = Math.min(canvas.width - monkey.width, monkey.x + monkey.speed);
