@@ -1001,7 +1001,10 @@ export class MonkeyInvadersEngine {
   private updateEnemies(dt: number) {
     if (this.enemies.length === 0) return;
     const alive = this.enemies.filter(enemy => enemy.hp > 0);
-    if (alive.length === 0) return;
+    if (alive.length === 0) {
+      this.enemies = [];
+      return;
+    }
     const speedBase =
       42 +
       this.wave * (this.mode === "endless" ? 6 : 5) +
@@ -1019,7 +1022,7 @@ export class MonkeyInvadersEngine {
       enemy.py = enemy.y;
       enemy.flash = Math.max(0, enemy.flash - dt * 6);
       enemy.phase += dt * (enemy.kind === "spinner" ? 4.2 : 2.1);
-      if (enemy.kind === "shield")
+      if (enemy.kind === "shield" && enemy.shieldMax > 0)
         enemy.shieldHp = Math.min(enemy.shieldMax, enemy.shieldHp + dt * 4);
       if (enemy.kind === "teleporter") {
         enemy.teleportTimer -= dt;
@@ -1048,8 +1051,7 @@ export class MonkeyInvadersEngine {
       }
       if (enemy.kind === "kamikaze" && !enemy.diving) {
         enemy.diveDelay -= dt;
-        if (enemy.diveDelay <= 0 && Math.random() < dt * 0.35)
-          enemy.diving = true;
+        if (enemy.diveDelay <= 0) enemy.diving = true;
       }
       if (enemy.kind === "kamikaze" && enemy.diving) {
         const targetX = this.player.x + this.player.w / 2;
@@ -1321,6 +1323,10 @@ export class MonkeyInvadersEngine {
       if (enemy.kind === "shield" && enemy.shieldHp > 0) {
         enemy.shieldHp -= damage;
         enemy.flash = 1;
+        if (enemy.shieldHp <= 0) {
+          enemy.shieldHp = 0;
+          enemy.shieldMax = 0;
+        }
         continue;
       }
       enemy.hp -= damage;
@@ -1375,6 +1381,10 @@ export class MonkeyInvadersEngine {
         if (enemy.kind === "shield" && enemy.shieldHp > 0) {
           enemy.shieldHp -= projectile.damage;
           enemy.flash = 1;
+          if (enemy.shieldHp <= 0) {
+            enemy.shieldHp = 0;
+            enemy.shieldMax = 0;
+          }
           this.spawnBurst(projectile.x, projectile.y, "#8fe6ff", 6, 40);
           this.audio.blip(300, 0.03, 0.01, "square");
           if (
@@ -1586,7 +1596,7 @@ export class MonkeyInvadersEngine {
 
   private spawnSplitterChildren(enemy: Enemy) {
     for (const dir of [-1, 1]) {
-      const x = clamp(enemy.x + dir * 18, 18, W - 30);
+      const x = clamp(enemy.x + dir * 18, 18, W - 44);
       const y = enemy.y;
       this.enemies.push({
         id: this.nextId++,
