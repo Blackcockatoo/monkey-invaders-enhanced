@@ -375,15 +375,15 @@ canvas {
   justify-self: start;
   display: flex;
   align-items: center;
-  gap: clamp(9px, 1.5vw, 18px);
+  gap: clamp(11px, 1.8vw, 22px);
 }
 .dpad button {
-  width: clamp(58px, 7.8vw, 94px);
-  height: clamp(58px, 7.8vw, 94px);
+  width: clamp(66px, 9vw, 108px);
+  height: clamp(66px, 9vw, 108px);
   display: grid;
   place-items: center;
   border: 2px solid #2367bb;
-  border-radius: 17px;
+  border-radius: 19px;
   color: var(--blue-soft);
   background: linear-gradient(#15233c, #050710);
   box-shadow:
@@ -396,7 +396,7 @@ canvas {
   border-color: color-mix(in srgb, var(--pilot) 55%, #2367bb);
 }
 .dpad button span {
-  font-size: clamp(27px, 3.2vw, 39px);
+  font-size: clamp(30px, 3.6vw, 44px);
   line-height: 1;
 }
 .dpad button:active {
@@ -413,10 +413,10 @@ canvas {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: clamp(9px, 1.5vw, 18px);
+  gap: clamp(11px, 1.8vw, 22px);
 }
 .action-controls button {
-  width: clamp(76px, 9.8vw, 120px);
+  width: clamp(86px, 11.4vw, 138px);
   aspect-ratio: 1;
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.55);
@@ -448,12 +448,12 @@ canvas {
   transition: background 0.25s;
 }
 .action-controls span {
-  font-size: clamp(28px, 3.8vw, 45px);
+  font-size: clamp(32px, 4.4vw, 51px);
   line-height: 1;
 }
 .action-controls small {
   margin-top: 3px;
-  font-size: clamp(8px, 0.8vw, 10px);
+  font-size: clamp(9px, 0.9vw, 11px);
   font-weight: 1000;
   letter-spacing: 0.08em;
 }
@@ -600,24 +600,24 @@ canvas {
     padding: 9px 3px 5px;
   }
   .dpad {
-    gap: 5px;
+    gap: 7px;
   }
   .dpad button {
-    width: min(17vw, 72px);
-    height: min(17vw, 72px);
-    border-radius: 12px;
+    width: min(20vw, 82px);
+    height: min(20vw, 82px);
+    border-radius: 14px;
   }
   .dpad button span {
-    font-size: 23px;
+    font-size: 27px;
   }
   .action-controls {
-    gap: 5px;
+    gap: 7px;
   }
   .action-controls button {
-    width: min(21vw, 88px);
+    width: min(24vw, 100px);
   }
   .action-controls span {
-    font-size: 31px;
+    font-size: 35px;
   }
   .mini-controls {
     gap: 4px;
@@ -703,18 +703,18 @@ canvas {
     align-self: center;
     justify-self: center;
     width: 100%;
-    max-width: 200px;
+    max-width: 226px;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    gap: 8px;
   }
   .dpad button {
     width: 100%;
-    height: clamp(58px, 21svh, 86px);
-    border-radius: 14px;
+    height: clamp(64px, 24svh, 96px);
+    border-radius: 16px;
   }
   .dpad button span {
-    font-size: clamp(24px, 8svh, 34px);
+    font-size: clamp(27px, 9svh, 38px);
   }
   .action-controls {
     grid-column: 3;
@@ -725,13 +725,13 @@ canvas {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: clamp(8px, 2.5svh, 14px);
+    gap: clamp(10px, 3svh, 16px);
   }
   .action-controls button {
-    width: clamp(76px, 25svh, 110px);
+    width: clamp(84px, 28svh, 122px);
   }
   .action-controls span {
-    font-size: clamp(31px, 10svh, 46px);
+    font-size: clamp(34px, 11svh, 50px);
   }
   .mini-controls {
     grid-column: 1/4;
