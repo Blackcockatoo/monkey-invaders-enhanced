@@ -677,10 +677,9 @@ canvas {
   }
   .play-layout {
     display: grid;
-    grid-template-columns: minmax(116px, 1fr) minmax(
-        0,
-        min(70vw, calc((100svh - 52px) * 1.7777))
-      ) minmax(116px, 1fr);
+    grid-template-columns:
+      minmax(116px, 1fr) minmax(0, min(70vw, calc((100svh - 52px) * 1.7777)))
+      minmax(116px, 1fr);
     grid-template-rows: 1fr auto;
     align-items: center;
     column-gap: clamp(7px, 1.2vw, 16px);
