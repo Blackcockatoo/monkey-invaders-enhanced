@@ -1,4 +1,4 @@
-import type { GameState } from "@/game/types";
+import type { GameState } from "./types.ts";
 
 export class ArcadeAudio {
   muted = false;
