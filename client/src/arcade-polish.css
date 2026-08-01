@@ -1,0 +1,248 @@
+.arcade-page.pilot-rex {
+  --pilot: #ffad42;
+  --pilot-soft: #ffe0a3;
+}
+
+.arcade-page.pilot-glitch {
+  --pilot: #72ff7d;
+  --pilot-soft: #c3ffb5;
+}
+
+.arcade-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    linear-gradient(115deg, transparent 0 46%, rgba(255, 255, 255, 0.018) 49%, transparent 52%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 7px);
+  mix-blend-mode: screen;
+}
+
+.arcade-page[data-state="playing"] .machine-status i,
+.arcade-page[data-state="bossIntro"] .machine-status i {
+  animation: cabinet-pulse 1s steps(2, end) infinite;
+}
+
+.arcade-page[data-state="paused"] .machine-status i {
+  background: var(--gold);
+  box-shadow: 0 0 14px var(--gold);
+}
+
+.arcade-page[data-state="gameOver"] .machine-status i {
+  background: #ff496f;
+  box-shadow: 0 0 14px #ff496f;
+}
+
+.cabinet {
+  overflow: hidden;
+}
+
+.cabinet::after {
+  box-shadow: 0 0 18px var(--pink);
+}
+
+.cabinet-crown {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.cabinet-crown::before {
+  content: "";
+  position: absolute;
+  inset: 4px 12%;
+  z-index: -1;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--pilot) 22%, transparent), transparent 68%);
+  filter: blur(8px);
+}
+
+.cabinet-crown::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24%;
+  left: -30%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  transform: skewX(-22deg);
+  animation: marquee-sweep 6.5s ease-in-out infinite;
+}
+
+.cabinet-data-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 clamp(2px, 0.8vw, 10px) clamp(7px, 1vw, 12px);
+  border: 1px solid color-mix(in srgb, var(--pilot) 30%, #14264c);
+  background: #03050b;
+  box-shadow: inset 0 0 20px #000, 0 0 14px color-mix(in srgb, var(--pilot) 18%, transparent);
+}
+
+.cabinet-data-rail > span {
+  min-width: 0;
+  padding: 6px clamp(6px, 1vw, 13px) 7px;
+  background: linear-gradient(180deg, rgba(22, 31, 52, 0.9), rgba(4, 7, 15, 0.96));
+  border-right: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.cabinet-data-rail > span:last-child {
+  border-right: 0;
+}
+
+.cabinet-data-rail small,
+.cabinet-data-rail b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cabinet-data-rail small {
+  color: #7185a4;
+  font-size: clamp(8px, 0.75vw, 10px);
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.cabinet-data-rail b {
+  margin-top: 2px;
+  color: #f8fbff;
+  font-size: clamp(10px, 1vw, 14px);
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--pilot) 60%, transparent);
+}
+
+.screen-bezel {
+  position: relative;
+}
+
+.screen-bezel::after {
+  content: "SIGNAL LOCKED";
+  position: absolute;
+  right: clamp(10px, 1.5vw, 20px);
+  bottom: clamp(8px, 1.2vw, 15px);
+  z-index: 4;
+  padding: 3px 6px;
+  border: 1px solid rgba(117, 255, 209, 0.26);
+  color: rgba(183, 255, 231, 0.72);
+  background: rgba(2, 7, 12, 0.72);
+  font-size: clamp(7px, 0.65vw, 9px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+}
+
+.control-deck {
+  background:
+    linear-gradient(180deg, rgba(18, 25, 44, 0.82), rgba(2, 4, 10, 0.96)),
+    repeating-linear-gradient(90deg, transparent 0 11px, rgba(255, 255, 255, 0.018) 12px);
+  border-radius: 0 0 18px 18px;
+}
+
+.dpad button,
+.action-controls button,
+.mini-controls button,
+.pilot-choice button {
+  position: relative;
+  overflow: hidden;
+  transition: transform 100ms ease, filter 140ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.dpad button::after,
+.action-controls button::after,
+.mini-controls button::after,
+.pilot-choice button::after {
+  content: "";
+  position: absolute;
+  inset: 1px 8% auto;
+  height: 34%;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17), transparent);
+  pointer-events: none;
+}
+
+.dpad button:hover,
+.action-controls button:hover,
+.mini-controls button:hover,
+.pilot-choice button:hover {
+  filter: brightness(1.12) saturate(1.08);
+}
+
+.dpad button:active,
+.action-controls button:active,
+.mini-controls button:active,
+.pilot-choice button:active {
+  transform: translateY(3px) scale(0.985);
+}
+
+.action-controls .fire span {
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.34));
+}
+
+.action-controls .blast {
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.05),
+    0 0 0 6px rgba(0, 0, 0, 0.55),
+    inset 0 -9px 0 rgba(0, 0, 0, 0.34),
+    0 0 34px color-mix(in srgb, var(--pilot) 45%, transparent),
+    0 7px 19px #000;
+}
+
+.pilot-choice {
+  width: min(980px, 96%);
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  background: rgba(3, 5, 11, 0.72);
+  box-shadow: inset 0 0 16px #000;
+  backdrop-filter: blur(8px);
+}
+
+.pilot-choice p {
+  color: #7286a3;
+  letter-spacing: 0.08em;
+}
+
+.arcade-page[data-mode="bossRush"] .cabinet-data-rail {
+  border-color: rgba(255, 73, 111, 0.58);
+}
+
+.arcade-page[data-mode="daily"] .cabinet-data-rail {
+  border-color: rgba(255, 231, 116, 0.58);
+}
+
+@keyframes marquee-sweep {
+  0%, 65% { left: -30%; opacity: 0; }
+  72% { opacity: 0.8; }
+  88% { left: 112%; opacity: 0.4; }
+  100% { left: 112%; opacity: 0; }
+}
+
+@keyframes cabinet-pulse {
+  50% { opacity: 0.45; }
+}
+
+@media (max-width: 720px) {
+  .cabinet-data-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cabinet-data-rail > span:nth-child(2) {
+    border-right: 0;
+  }
+
+  .pilot-choice p {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cabinet-crown::after,
+  .arcade-page[data-state="playing"] .machine-status i,
+  .arcade-page[data-state="bossIntro"] .machine-status i {
+    animation: none;
+  }
+}
