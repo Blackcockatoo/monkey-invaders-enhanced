@@ -9,6 +9,8 @@
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "lint": "prettier --check client/src/game client/src/pages/Home.tsx tests docs README.md CHANGELOG.md",
     "format": "prettier --write ."
   },
   "dependencies": {

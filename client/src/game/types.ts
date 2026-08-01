@@ -1,12 +1,19 @@
 export type Action = "left" | "right" | "fire" | "special" | "start" | "pause";
 export type PilotId = "bolt" | "nova" | "rex" | "glitch";
 export type GameMode = "classic" | "endless" | "bossRush" | "daily";
+export type SectorId =
+  | "neonOrbit"
+  | "rindMines"
+  | "staticJungle"
+  | "curdLaboratory"
+  | "endSignal";
 export type GameState =
   | "boot"
   | "title"
   | "playing"
   | "waveClear"
   | "bossIntro"
+  | "upgradeChoice"
   | "paused"
   | "gameOver";
 
@@ -19,6 +26,12 @@ export type CabinetStatus = {
   wave: number;
   lives: number;
   credits: number;
+  sector: SectorId;
+  encounter: number;
+  circuit: number;
+  combo: number;
+  shakeEnabled: boolean;
+  unlockedPilots: PilotId[];
 };
 
 export type Moving = {
@@ -86,7 +99,18 @@ export type Enemy = Moving & {
   diving: boolean;
   diveDelay: number;
   golden: boolean;
+  mutation?: EnemyMutation;
+  entryDelay?: number;
+  targetX?: number;
+  targetY?: number;
+  teleportTargetX?: number;
+  teleportWarning?: number;
+  shieldBrokenTimer?: number;
+  cueTimer?: number;
+  corruptTimer?: number;
 };
+
+export type EnemyMutation = "standard" | "overclocked" | "volatile";
 
 export type ProjectileKind = "banana" | "bolt" | "laser" | "bomb" | "boomerang";
 
@@ -101,6 +125,9 @@ export type Projectile = Moving & {
   rainbow: boolean;
   returning: boolean;
   homeY?: number;
+  countedMiss?: boolean;
+  nearMissed?: boolean;
+  hitSomething?: boolean;
 };
 
 export type Particle = Moving & {
@@ -132,7 +159,13 @@ export type Pickup = Moving & {
   life: number;
 };
 
-export type HazardKind = "meteor" | "beam";
+export type HazardKind =
+  | "meteor"
+  | "beam"
+  | "heat"
+  | "tentacle"
+  | "gate"
+  | "parasite";
 
 export type Hazard = Moving & {
   w: number;
@@ -141,6 +174,8 @@ export type Hazard = Moving & {
   telegraph: number;
   life: number;
   dealt: boolean;
+  warningLabel?: string;
+  safeGap?: number;
 };
 
 export type BossAttackPhase = 0 | 1 | 2;
@@ -162,6 +197,88 @@ export type Boss = Moving & {
   hazardTimer: number;
   entering: boolean;
   enterProgress: number;
+  vulnerable?: boolean;
+  quietTimer?: number;
+  patternStep?: number;
+};
+
+export type FormationMovement =
+  | "march"
+  | "sway"
+  | "arc"
+  | "spiral"
+  | "columns"
+  | "ring"
+  | "glitch";
+
+export type FormationSlot = {
+  x: number;
+  y: number;
+  kind: EnemyKind;
+  entryDelay: number;
+  elite?: boolean;
+  golden?: boolean;
+};
+
+export type FormationDefinition = {
+  id: string;
+  label: string;
+  allowedSectors: SectorId[];
+  minimumWave: number;
+  slots: FormationSlot[];
+  entryTiming: string;
+  movement: FormationMovement;
+  threat: number;
+  safeLanes: { from: number; to: number }[];
+  compatibleEvents: RandomEventId[];
+  incompatibleEnemyCombinations: [EnemyKind, EnemyKind][];
+  expectedDuration: number;
+  objective: string;
+};
+
+export type EncounterKind = "combat" | "escalation" | "boss" | "recovery";
+
+export type CampaignPosition = {
+  sector: SectorId;
+  sectorIndex: number;
+  encounter: number;
+  circuit: number;
+  kind: EncounterKind;
+  formationId?: string;
+  bossIndex?: number;
+};
+
+export type RunUpgradeId =
+  | "rapidReserve"
+  | "shieldLayer"
+  | "quickReturn"
+  | "longMagnet"
+  | "nearMissCharge"
+  | "frozenDividend"
+  | "piercingSplit"
+  | "saferMystery"
+  | "goldenContract"
+  | "blastBank"
+  | "steadyCombo"
+  | "eventDividend";
+
+export type WaveMedal =
+  | "clear"
+  | "noDamage"
+  | "targetScore"
+  | "timeTarget"
+  | "formationObjective";
+
+export type WaveResult = {
+  score: number;
+  baseScore: number;
+  comboBonus: number;
+  timeBonus: number;
+  blastBonus: number;
+  medals: WaveMedal[];
+  largestCombo: number;
+  accuracy: number;
+  duration: number;
 };
 
 export type Star = {

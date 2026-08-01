@@ -3,7 +3,7 @@ import type {
   PickupKind,
   PilotId,
   RandomEventId,
-} from "@/game/types";
+} from "./types.ts";
 
 export const PILOTS: Record<
   PilotId,
@@ -133,31 +133,111 @@ export const BOSSES = [
 
 export const PICKUP_META: Record<
   PickupKind,
-  { label: string; symbol: string; color: string; weight: number }
+  {
+    label: string;
+    symbol: string;
+    color: string;
+    weight: number;
+    family:
+      | "firepower"
+      | "defence"
+      | "control"
+      | "mobility"
+      | "chaos"
+      | "special";
+  }
 > = {
-  rapid: { label: "RAPID FIRE", symbol: "R", color: "#54e6ff", weight: 16 },
-  spread: { label: "TRIPLE SHOT", symbol: "3", color: "#ff4fc3", weight: 14 },
-  shield: { label: "SHIELD", symbol: "S", color: "#75ffd1", weight: 12 },
-  special: { label: "BLAST CHARGE", symbol: "★", color: "#fff36b", weight: 10 },
-  magnet: { label: "MAGNET", symbol: "◎", color: "#c9a5ff", weight: 9 },
-  laser: { label: "LASER BANANA", symbol: "⚡", color: "#ffef6b", weight: 8 },
-  freeze: { label: "FREEZE", symbol: "❄", color: "#8fe6ff", weight: 7 },
+  rapid: {
+    label: "RAPID FIRE",
+    symbol: "R",
+    color: "#54e6ff",
+    weight: 16,
+    family: "firepower",
+  },
+  spread: {
+    label: "TRIPLE SHOT",
+    symbol: "3",
+    color: "#ff4fc3",
+    weight: 14,
+    family: "firepower",
+  },
+  shield: {
+    label: "SHIELD",
+    symbol: "S",
+    color: "#75ffd1",
+    weight: 12,
+    family: "defence",
+  },
+  special: {
+    label: "BLAST CHARGE",
+    symbol: "★",
+    color: "#fff36b",
+    weight: 10,
+    family: "special",
+  },
+  magnet: {
+    label: "MAGNET",
+    symbol: "◎",
+    color: "#c9a5ff",
+    weight: 9,
+    family: "mobility",
+  },
+  laser: {
+    label: "LASER BANANA",
+    symbol: "⚡",
+    color: "#ffef6b",
+    weight: 8,
+    family: "firepower",
+  },
+  freeze: {
+    label: "FREEZE",
+    symbol: "❄",
+    color: "#8fe6ff",
+    weight: 7,
+    family: "control",
+  },
   boomerang: {
     label: "BOOMERANG BANANA",
     symbol: "↺",
     color: "#ffcf4a",
     weight: 8,
+    family: "control",
   },
-  bomb: { label: "BANANA BOMB", symbol: "●", color: "#ff8a3d", weight: 6 },
+  bomb: {
+    label: "BANANA BOMB",
+    symbol: "●",
+    color: "#ff8a3d",
+    weight: 6,
+    family: "firepower",
+  },
   rainbow: {
     label: "RAINBOW BANANA",
     symbol: "◆",
     color: "#ff7ad9",
     weight: 6,
+    family: "chaos",
   },
-  gorilla: { label: "GORILLA RAGE", symbol: "🦍", color: "#ffb454", weight: 5 },
-  timeSlow: { label: "TIME SLOW", symbol: "⧗", color: "#9ad3ff", weight: 6 },
-  mystery: { label: "MYSTERY BOX", symbol: "?", color: "#ffffff", weight: 7 },
+  gorilla: {
+    label: "GORILLA RAGE",
+    symbol: "🦍",
+    color: "#ffb454",
+    weight: 5,
+    family: "chaos",
+  },
+  timeSlow: {
+    label: "TIME SLOW",
+    symbol: "⧗",
+    color: "#9ad3ff",
+    weight: 6,
+    family: "control",
+  },
+  mystery: {
+    label: "MYSTERY BOX",
+    symbol: "?",
+    color: "#ffffff",
+    weight: 7,
+    family: "chaos",
+  },
 };
 
 export const RANDOM_EVENT_META: Record<

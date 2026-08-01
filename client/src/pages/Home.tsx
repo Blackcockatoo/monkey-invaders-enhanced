@@ -13,6 +13,8 @@ import {
   type PilotId,
 } from "@/game/MonkeyInvadersEngine";
 import { MODE_LABELS } from "@/game/content";
+import { PILOT_RULES } from "@/game/pilot-rules";
+import { sectorLabel } from "@/game/sector-content";
 
 const HOLD_ACTIONS = new Set<Action>(["left", "right", "fire"]);
 const INITIAL_STATUS: CabinetStatus = {
@@ -24,6 +26,12 @@ const INITIAL_STATUS: CabinetStatus = {
   wave: 1,
   lives: 3,
   credits: 0,
+  sector: "neonOrbit",
+  encounter: 1,
+  circuit: 1,
+  combo: 1,
+  shakeEnabled: true,
+  unlockedPilots: ["bolt", "nova"],
 };
 
 const PILOT_LABELS: Record<PilotId, string> = {
@@ -81,10 +89,15 @@ export default function Home() {
     setMuted(next);
     engineRef.current?.setMuted(next);
   };
+  const toggleShake = () =>
+    engineRef.current?.setCameraShakeEnabled(!status.shakeEnabled);
 
   const online = status.state !== "title" && status.state !== "boot";
   const pilotLabel = PILOT_LABELS[status.pilot];
   const modeLabel = MODE_LABELS[status.mode];
+  const pilotRule = PILOT_RULES[status.pilot];
+  const encounterTotal =
+    status.mode === "bossRush" ? 13 : status.mode === "endless" ? 7 : 6;
 
   return (
     <main
@@ -122,8 +135,11 @@ export default function Home() {
             <b>{pilotLabel}</b>
           </span>
           <span>
-            <small>MISSION MODE</small>
-            <b>{modeLabel}</b>
+            <small>MISSION / SECTOR</small>
+            <b>
+              {modeLabel} · {sectorLabel(status.sector)} {status.encounter}/
+              {encounterTotal}
+            </b>
           </span>
           <span>
             <small>WAVE / LIVES</small>
@@ -132,9 +148,10 @@ export default function Home() {
             </b>
           </span>
           <span>
-            <small>SCORE / CREDITS</small>
+            <small>SCORE / COMBO</small>
             <b>
-              {String(status.score).padStart(7, "0")} / {status.credits}
+              {String(status.score).padStart(7, "0")} / x
+              {status.combo.toFixed(2)} / CR {status.credits}
             </b>
           </span>
         </div>
@@ -194,6 +211,13 @@ export default function Home() {
               <button type="button" aria-pressed={muted} onClick={toggleMute}>
                 {muted ? "SOUND OFF" : "SOUND ON"}
               </button>
+              <button
+                type="button"
+                aria-pressed={status.shakeEnabled}
+                onClick={toggleShake}
+              >
+                SHAKE {status.shakeEnabled ? "ON" : "OFF"}
+              </button>
             </div>
 
             <div className="action-controls" aria-label="Action controls">
@@ -228,7 +252,27 @@ export default function Home() {
         >
           <span className="pilot-dot blue" /> BOLT
         </button>
-        <p>Two core signals. More pilots unlock inside the cabinet.</p>
+        <button
+          className={status.pilot === "rex" ? "active" : ""}
+          disabled={!status.unlockedPilots.includes("rex")}
+          onClick={() => setPilot("rex")}
+          type="button"
+        >
+          REX {!status.unlockedPilots.includes("rex") && "· LOCKED"}
+        </button>
+        <p>
+          {pilotRule.role} · MOB {pilotRule.mobility}/5 · FIRE{" "}
+          {pilotRule.firepower}/5 · CONTROL {pilotRule.control}/5 · RISK{" "}
+          {pilotRule.risk}/5 · {pilotRule.blastLabel}
+        </p>
+        <button
+          className={status.pilot === "glitch" ? "active" : ""}
+          disabled={!status.unlockedPilots.includes("glitch")}
+          onClick={() => setPilot("glitch")}
+          type="button"
+        >
+          GLITCH {!status.unlockedPilots.includes("glitch") && "· LOCKED"}
+        </button>
         <button
           className={status.pilot === "nova" ? "active" : ""}
           onClick={() => setPilot("nova")}
@@ -245,7 +289,7 @@ export default function Home() {
         </p>
         <p className="desktop-hint">
           MOVE A/D OR ←/→ · FIRE SPACE/X/Z · BLAST C/W/↑ · ENTER START · P PAUSE
-          · Q PILOT · M MODE · I INFO
+          · GAMEPAD · Q PILOT · M MODE · I INFO
         </p>
         <p className="mobile-hint">
           MULTI-TOUCH READY · TURN LANDSCAPE FOR THE FULL CABINET

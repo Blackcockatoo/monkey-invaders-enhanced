@@ -17,8 +17,11 @@ import type {
   Projectile,
   ProjectileKind,
   RandomEventId,
+  RunUpgradeId,
+  SectorId,
   Star,
-} from "@/game/types";
+  WaveResult,
+} from "./types.ts";
 import {
   ABSURD_DEATH_EMOJI,
   ACHIEVEMENTS,
@@ -33,14 +36,53 @@ import {
   RANDOM_EVENT_META,
   RARE_TICKER_MESSAGES,
   TICKER_MESSAGES,
-} from "@/game/content";
-import { ArcadeAudio } from "@/game/audio";
+} from "./content.ts";
+import { ArcadeAudio } from "./audio.ts";
 import {
-  Persistence,
-  dailySeedFromDate,
-  dateKey,
-  mulberry32,
-} from "@/game/persistence";
+  bossHazardPlan,
+  bossPhaseFromHealth,
+  bossPattern,
+  bossPose,
+  bossVolley,
+} from "./boss-patterns.ts";
+import {
+  DAILY_SEED_VERSION,
+  buildDailyChallenge,
+  dailyFormationForWave,
+  type DailyChallengePlan,
+} from "./daily-challenge.ts";
+import { ENEMY_RULES, mutationFor } from "./enemy-rules.ts";
+import { getFormation } from "./formations.ts";
+import { achievementsFor } from "./achievement-rules.ts";
+import { canRestart, togglePauseState } from "./game-state.ts";
+import { pickupDuration, shieldHits } from "./pickup-rules.ts";
+import {
+  PILOT_RULES,
+  blastAngles,
+  glitchBeat,
+  pilotAccuracyBonus,
+  pilotKillMultiplier,
+} from "./pilot-rules.ts";
+import {
+  RANDOM_EVENT_RULES,
+  compatibleEvents,
+  eventCompatible,
+} from "./random-events.ts";
+import { RUN_UPGRADES, offerRunUpgrades } from "./run-upgrades.ts";
+import {
+  calculateWaveResult,
+  comboMultiplier,
+  createComboState,
+  registerHit,
+  registerKill,
+  registerMiss,
+  registerNearMiss,
+  registerShot,
+  updateCombo,
+} from "./scoring.ts";
+import { SECTORS, campaignPosition, sectorLabel } from "./sector-content.ts";
+import { directWave } from "./wave-director.ts";
+import { Persistence, dateKey, mulberry32 } from "./persistence.ts";
 
 export type {
   Action,
@@ -48,7 +90,7 @@ export type {
   GameMode,
   GameState,
   PilotId,
-} from "@/game/types";
+} from "./types.ts";
 
 const W = 960;
 const H = 540;
@@ -72,6 +114,7 @@ type DyingAlien = {
   rotation: number;
   timer: number;
   emoji: string;
+  kind: EnemyKind;
 };
 type AchievementToast = { title: string; desc: string; timer: number };
 
@@ -100,6 +143,10 @@ export class MonkeyInvadersEngine {
   private pilot: PilotId = Persistence.getPilot();
   private unlockedPilots = Persistence.getUnlockedPilots();
   private mode: GameMode = "classic";
+  private pilotBestScore = Persistence.getPilotBestScore(this.pilot, this.mode);
+  private currentSector: SectorId = "neonOrbit";
+  private currentEncounter = 1;
+  private currentCircuit = 1;
   private player = this.makePlayer();
   private enemies: Enemy[] = [];
   private projectiles: Projectile[] = [];
@@ -115,6 +162,19 @@ export class MonkeyInvadersEngine {
   private wave = 1;
   private waveTimer = 0;
   private waveDamageTaken = false;
+  private waveElapsed = 0;
+  private waveStartScore = 0;
+  private waveResult: WaveResult | null = null;
+  private showWaveResult = false;
+  private combo = createComboState();
+  private lastKillAt = -10;
+  private runUpgrades = new Set<RunUpgradeId>();
+  private upgradeOptions: RunUpgradeId[] = [];
+  private upgradeIndex = 0;
+  private shieldLayers = 0;
+  private formationMovement: import("./types.ts").FormationMovement = "march";
+  private currentFormationId = "horizontalRows";
+  private safeLane = { from: 0.42, to: 0.58 };
   private formationDirection = 1;
   private enemyShotTimer = 1.2;
   private shake = 0;
@@ -131,16 +191,34 @@ export class MonkeyInvadersEngine {
   private lastTapTime = 0;
   private disclosureOpen = false;
   private bossRushIndex = 0;
+  private bossPatternStep = 0;
   private activeEvent: RandomEventId | null = null;
   private eventTimer = 0;
   private eventTickTimer = 0;
   private eventCooldown = 20;
+  private dailyEventWave = 0;
+  private eventFailed = false;
+  private eventObjective = 0;
   private achievementsCache = Persistence.getAchievements();
   private achievementQueue: AchievementToast[] = [];
   private bananaSkin = Persistence.getBananaSkin();
   private tickerFeed: string;
   private dailyDateKey = dateKey(new Date());
   private dailyModifier: RandomEventId;
+  private dailyPlan: DailyChallengePlan;
+  private runSeed = 1;
+  private gameplayRandom: () => number = Math.random;
+  private cameraShakeEnabled = Persistence.getCameraShake();
+  private readonly reducedMotion =
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  private gamepadHeld: Record<Action, boolean> = {
+    left: false,
+    right: false,
+    fire: false,
+    special: false,
+    start: false,
+    pause: false,
+  };
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -155,9 +233,12 @@ export class MonkeyInvadersEngine {
     this.highScore = Persistence.getHighScore(this.mode);
     this.audio.muted = Persistence.getMuted();
     this.audio.setMusicScale(Persistence.getMusicScale());
-    const seededRandom = mulberry32(dailySeedFromDate(new Date()));
-    const eventIds = Object.keys(RANDOM_EVENT_META) as RandomEventId[];
-    this.dailyModifier = eventIds[Math.floor(seededRandom() * eventIds.length)];
+    this.dailyPlan = buildDailyChallenge(new Date(), DAILY_SEED_VERSION);
+    this.dailyDateKey = this.dailyPlan.dateKey;
+    this.dailyModifier =
+      this.dailyPlan.events.find(
+        (event): event is RandomEventId => event !== null
+      ) ?? "bananaStorm";
     const tickerParts = [...TICKER_MESSAGES, ...FAKE_REVIEWS];
     if (Math.random() < 1 / 6) {
       tickerParts.splice(
@@ -212,6 +293,16 @@ export class MonkeyInvadersEngine {
     Persistence.setMuted(value);
   }
 
+  isCameraShakeEnabled() {
+    return this.cameraShakeEnabled && !this.reducedMotion;
+  }
+
+  setCameraShakeEnabled(value: boolean) {
+    this.cameraShakeEnabled = value;
+    Persistence.setCameraShake(value);
+    this.emitStatus(true);
+  }
+
   cyclePilot() {
     const order: PilotId[] = ["bolt", "nova", "rex", "glitch"];
     const unlocked = order.filter(id => this.unlockedPilots.has(id));
@@ -222,8 +313,15 @@ export class MonkeyInvadersEngine {
 
   selectPilot(pilot: PilotId) {
     if (!this.unlockedPilots.has(pilot)) return;
+    if (
+      this.state !== "boot" &&
+      this.state !== "title" &&
+      this.state !== "gameOver"
+    )
+      return;
     this.pilot = pilot;
     Persistence.setPilot(pilot);
+    this.pilotBestScore = Persistence.getPilotBestScore(pilot, this.mode);
     this.emitStatus(true);
     this.audio.blip(
       pilot === "bolt"
@@ -248,19 +346,23 @@ export class MonkeyInvadersEngine {
       this.mode === "daily"
         ? Persistence.getDailyRecord(this.dailyDateKey)
         : Persistence.getHighScore(this.mode);
+    this.pilotBestScore = Persistence.getPilotBestScore(this.pilot, this.mode);
     this.audio.blip(400, 0.05, 0.02, "triangle");
     this.emitStatus(true);
   }
 
   press(action: Action) {
     this.audio.unlock();
+    if (this.state === "upgradeChoice") {
+      if (action === "left") this.moveUpgradeChoice(-1);
+      if (action === "right") this.moveUpgradeChoice(1);
+      if (action === "fire" || action === "special" || action === "start")
+        this.chooseRunUpgrade();
+      return;
+    }
     if (!this.held[action]) this.just.add(action);
     this.held[action] = true;
-    if (
-      action === "start" &&
-      (this.state === "title" || this.state === "gameOver")
-    )
-      this.startGame();
+    if (action === "start" && canRestart(this.state)) this.startGame();
     if (action === "pause") this.togglePause();
   }
 
@@ -269,6 +371,7 @@ export class MonkeyInvadersEngine {
   }
 
   private makePlayer(): Player {
+    const rule = PILOT_RULES[this.pilot];
     return {
       x: W / 2 - 25,
       y: PLAYER_Y,
@@ -280,7 +383,7 @@ export class MonkeyInvadersEngine {
       h: 50,
       baseW: 50,
       baseH: 50,
-      speed: 410,
+      speed: 410 * rule.moveSpeed,
       lives: 3,
       invulnerable: 0,
       fireCooldown: 0,
@@ -303,12 +406,24 @@ export class MonkeyInvadersEngine {
   }
 
   private startGame() {
+    if (this.mode === "daily") {
+      this.dailyPlan = buildDailyChallenge(new Date(), DAILY_SEED_VERSION);
+      this.dailyDateKey = this.dailyPlan.dateKey;
+      this.pilot = this.dailyPlan.pilot;
+      this.runSeed = this.dailyPlan.seed;
+    } else {
+      this.runSeed = (Math.random() * 0x7fffffff) | 0;
+    }
+    this.gameplayRandom = mulberry32(this.runSeed);
     this.credits = Persistence.addCredit();
     this.audio.coinInsert();
     this.state = "playing";
     this.stateTime = 0;
     this.score = 0;
     this.wave = 1;
+    this.currentSector = "neonOrbit";
+    this.currentEncounter = 1;
+    this.currentCircuit = 1;
     this.waveTimer = 0;
     this.player = this.makePlayer();
     this.enemies = [];
@@ -321,19 +436,33 @@ export class MonkeyInvadersEngine {
     this.formationDirection = 1;
     this.cheatUsed = false;
     this.waveDamageTaken = false;
+    this.waveElapsed = 0;
+    this.waveStartScore = 0;
+    this.waveResult = null;
+    this.showWaveResult = false;
+    this.combo = createComboState();
+    this.runUpgrades.clear();
+    this.upgradeOptions = [];
+    this.upgradeIndex = 0;
+    this.shieldLayers = 0;
     this.bossRushIndex = 0;
+    this.bossPatternStep = 0;
     this.activeEvent = null;
     this.eventTimer = 0;
     this.eventTickTimer = 0;
-    this.eventCooldown = 18 + Math.random() * 10;
+    this.eventCooldown = 18 + this.random() * 10;
+    this.dailyEventWave = 0;
+    this.eventFailed = false;
+    this.eventObjective = 0;
     this.highScore =
       this.mode === "daily"
         ? Persistence.getDailyRecord(this.dailyDateKey)
         : Persistence.getHighScore(this.mode);
+    this.pilotBestScore = Persistence.getPilotBestScore(this.pilot, this.mode);
     this.message =
       this.mode === "daily"
-        ? `DAILY CHALLENGE · ${RANDOM_EVENT_META[this.dailyModifier].label}`
-        : "WAVE 1 · BANANAS ARMED";
+        ? `DAILY v${DAILY_SEED_VERSION} · ${PILOTS[this.pilot].name}`
+        : "NEON ORBIT · BANANAS ARMED";
     this.messageTimer = 1.8;
     this.spawnWave();
     this.audio.chord(220);
@@ -341,15 +470,121 @@ export class MonkeyInvadersEngine {
   }
 
   private togglePause() {
-    if (this.state === "playing") {
-      this.state = "paused";
-      this.stateTime = 0;
-      this.audio.blip(180, 0.08, 0.025);
-    } else if (this.state === "paused") {
-      this.state = "playing";
-      this.stateTime = 0;
-      this.audio.blip(320, 0.08, 0.025);
+    const next = togglePauseState(this.state);
+    if (next === this.state) return;
+    this.state = next;
+    this.stateTime = 0;
+    this.audio.blip(next === "paused" ? 180 : 320, 0.08, 0.025);
+    this.emitStatus(true);
+  }
+
+  private moveUpgradeChoice(direction: number) {
+    if (this.upgradeOptions.length === 0) return;
+    this.upgradeIndex =
+      (this.upgradeIndex + direction + this.upgradeOptions.length) %
+      this.upgradeOptions.length;
+    this.audio.blip(360 + this.upgradeIndex * 80, 0.05, 0.018, "triangle");
+  }
+
+  private openUpgradeChoice() {
+    this.finalizeWaveResult(true);
+    const sectorIndex = Math.max(
+      0,
+      this.currentEncounter === 6
+        ? campaignPosition(
+            this.wave,
+            this.mode === "daily" ? this.dailyPlan.sectorOrder : undefined
+          ).sectorIndex
+        : 0
+    );
+    this.upgradeOptions =
+      this.mode === "daily"
+        ? (this.dailyPlan.pickupOffers[sectorIndex] ??
+          offerRunUpgrades(this.runSeed, this.wave, this.runUpgrades))
+        : offerRunUpgrades(this.runSeed, this.wave, this.runUpgrades);
+    this.upgradeIndex = 0;
+    this.state = "upgradeChoice";
+    this.stateTime = 0;
+    this.projectiles = this.projectiles.filter(
+      projectile => !projectile.hostile
+    );
+    this.hazards = [];
+    this.message = "CHOOSE ONE RUN MODIFIER";
+    this.messageTimer = 99;
+    this.emitStatus(true);
+  }
+
+  private chooseRunUpgrade() {
+    const id = this.upgradeOptions[this.upgradeIndex];
+    if (!id) return;
+    this.runUpgrades.add(id);
+    this.message = `${RUN_UPGRADES[id].label} INSTALLED`;
+    this.messageTimer = 1.1;
+    this.audio.chord(330 + this.upgradeIndex * 55);
+    this.state = "waveClear";
+    this.stateTime = 0;
+    this.waveTimer = 0.9;
+    this.emitStatus(true);
+  }
+
+  private finalizeWaveResult(forceDisplay = false) {
+    if (this.waveResult) return;
+    const baseScore = Math.max(0, this.score - this.waveStartScore);
+    const expected =
+      this.currentEncounter === 6 || this.mode === "bossRush"
+        ? 95
+        : getFormation(this.currentFormationId).expectedDuration;
+    const result = calculateWaveResult({
+      baseScore,
+      combo: this.combo,
+      duration: this.waveElapsed,
+      targetDuration: expected,
+      damageTaken: this.waveDamageTaken,
+      blastCharge: this.player.special,
+      targetScore: Math.max(900, Math.round(baseScore * 1.22)),
+      formationObjective:
+        this.combo.hits >= 4 &&
+        this.combo.hits / Math.max(1, this.combo.shots) >= 0.62,
+    });
+    this.score += result.comboBonus + result.timeBonus + result.blastBonus;
+    this.waveResult = result;
+    this.showWaveResult =
+      forceDisplay || this.currentEncounter >= 5 || this.mode === "bossRush";
+    Persistence.recordWaveMedals(this.mode, this.wave, result.medals);
+  }
+
+  private finishRun(message: string) {
+    const scoreValid = !this.cheatUsed;
+    if (scoreValid) {
+      if (this.mode === "daily") {
+        if (
+          this.score >
+          Persistence.getDailyRecord(this.dailyDateKey, DAILY_SEED_VERSION)
+        ) {
+          Persistence.setDailyRecord(
+            this.dailyDateKey,
+            this.score,
+            DAILY_SEED_VERSION
+          );
+          this.highScore = this.score;
+        }
+      } else if (this.score > this.highScore) {
+        this.highScore = this.score;
+        Persistence.setHighScore(this.mode, this.score);
+      }
+      Persistence.setPilotBestScore(this.pilot, this.mode, this.score);
+      this.pilotBestScore = Math.max(this.pilotBestScore, this.score);
     }
+    this.state = "gameOver";
+    this.stateTime = 0;
+    this.enemies = [];
+    this.projectiles = [];
+    this.hazards = [];
+    this.boss = null;
+    this.activeEvent = null;
+    this.message = message;
+    this.messageTimer = 99;
+    this.audio.chord(392);
     this.emitStatus(true);
   }
 
@@ -459,11 +694,17 @@ export class MonkeyInvadersEngine {
   }
 
   private onCanvasTap(event: PointerEvent) {
-    if (this.state !== "playing") return;
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const x = ((event.clientX - rect.left) / rect.width) * W;
     const y = ((event.clientY - rect.top) / rect.height) * H;
+    if (this.state === "upgradeChoice") {
+      if (y < 155 || y > 410) return;
+      this.upgradeIndex = clamp(Math.floor((x / W) * 3), 0, 2);
+      this.chooseRunUpgrade();
+      return;
+    }
+    if (this.state !== "playing") return;
     if (x > 230 || y > 48) {
       this.tapCount = 0;
       return;
@@ -489,6 +730,49 @@ export class MonkeyInvadersEngine {
     return undefined;
   }
 
+  private isHeld(action: Action): boolean {
+    return this.held[action] || this.gamepadHeld[action];
+  }
+
+  private random(): number {
+    return this.gameplayRandom();
+  }
+
+  private updateGamepad() {
+    const gamepad = navigator.getGamepads?.()[0];
+    const next: Record<Action, boolean> = {
+      left: Boolean(
+        gamepad && (gamepad.axes[0] < -0.28 || gamepad.buttons[14]?.pressed)
+      ),
+      right: Boolean(
+        gamepad && (gamepad.axes[0] > 0.28 || gamepad.buttons[15]?.pressed)
+      ),
+      fire: Boolean(gamepad?.buttons[0]?.pressed),
+      special: Boolean(gamepad?.buttons[1]?.pressed),
+      start: Boolean(gamepad?.buttons[9]?.pressed),
+      pause: Boolean(gamepad?.buttons[8]?.pressed),
+    };
+    for (const action of Object.keys(next) as Action[]) {
+      if (next[action] && !this.gamepadHeld[action]) {
+        if (this.state === "upgradeChoice") {
+          if (action === "left") this.moveUpgradeChoice(-1);
+          if (action === "right") this.moveUpgradeChoice(1);
+          if (action === "fire" || action === "special" || action === "start")
+            this.chooseRunUpgrade();
+        } else {
+          this.just.add(action);
+          if (
+            action === "start" &&
+            (this.state === "title" || this.state === "gameOver")
+          )
+            this.startGame();
+          if (action === "pause") this.togglePause();
+        }
+      }
+    }
+    this.gamepadHeld = next;
+  }
+
   private loop = (time: number) => {
     if (!this.alive) return;
     if (!this.last) this.last = time;
@@ -511,6 +795,7 @@ export class MonkeyInvadersEngine {
   };
 
   private update(dt: number) {
+    this.updateGamepad();
     this.stateTime += dt;
     this.titleClock += dt;
     this.shake = Math.max(0, this.shake - dt * 24);
@@ -529,6 +814,11 @@ export class MonkeyInvadersEngine {
       return;
     }
     if (this.state === "paused") {
+      this.just.clear();
+      return;
+    }
+    if (this.state === "upgradeChoice") {
+      this.updateParticles(dt);
       this.just.clear();
       return;
     }
@@ -557,12 +847,14 @@ export class MonkeyInvadersEngine {
         if (this.wave === 25) this.unlock("wave25");
         this.state = "playing";
         this.stateTime = 0;
+        const next = campaignPosition(
+          this.wave,
+          this.mode === "daily" ? this.dailyPlan.sectorOrder : undefined
+        );
         this.message =
           this.mode === "bossRush"
-            ? "NEXT CHALLENGER"
-            : this.wave % 5 === 0
-              ? `BOSS WAVE ${this.wave}`
-              : `WAVE ${this.wave}`;
+            ? `CHALLENGER ${this.bossRushIndex + 1} / ${BOSSES.length}`
+            : `${sectorLabel(next.sector)} · ${next.kind === "boss" ? "BOSS" : `ENCOUNTER ${next.encounter}`}`;
         this.messageTimer = 1.4;
         this.spawnWave();
         this.emitStatus(true);
@@ -572,6 +864,8 @@ export class MonkeyInvadersEngine {
     }
 
     this.audio.tickMusic(dt, this.state, this.wave);
+    this.waveElapsed += dt;
+    updateCombo(this.combo, dt, this.runUpgrades.has("steadyCombo"));
     this.updateRandomEvents(dt);
     const enemyDt = dt * this.enemyTimeScale();
     this.updatePlayer(dt);
@@ -650,17 +944,16 @@ export class MonkeyInvadersEngine {
   }
 
   private updateRandomEvents(dt: number) {
-    if (this.mode === "daily" && !this.activeEvent) {
-      this.activeEvent = this.dailyModifier;
-      this.eventTimer = 999999;
-      this.eventTickTimer = 0;
-    }
     if (this.activeEvent) {
       this.eventTickTimer -= dt;
       switch (this.activeEvent) {
         case "bananaStorm":
           if (this.eventTickTimer <= 0) {
-            this.dropPickup(20 + Math.random() * (W - 40), -20);
+            const x =
+              (this.safeLane.from +
+                this.random() * (this.safeLane.to - this.safeLane.from)) *
+              W;
+            this.dropPickup(x, -20);
             this.eventTickTimer = 0.35;
           }
           break;
@@ -672,39 +965,89 @@ export class MonkeyInvadersEngine {
           break;
         case "mysteryCrate":
           if (this.eventTickTimer <= 0) {
-            this.dropPickup(20 + Math.random() * (W - 40), -20, "mystery");
+            const leftRisk = this.safeLane.from > 0.25;
+            const x = leftRisk ? W * 0.12 : W * 0.88;
+            this.dropPickup(x, -20, "mystery");
             this.eventTickTimer = 1.4;
           }
           break;
         default:
           break;
       }
-      if (this.mode !== "daily") {
-        this.eventTimer -= dt;
-        if (this.eventTimer <= 0) {
-          this.activeEvent = null;
-          if (this.player.lives > 0) this.unlock("eventSurvivor");
-          this.eventCooldown = 24 + Math.random() * 20;
+      this.eventTimer -= dt;
+      if (this.eventTimer <= 0) {
+        const finishedEvent = this.activeEvent;
+        const completed = !this.eventFailed && this.eventObjective >= 2;
+        if (completed) {
+          const multiplier = this.runUpgrades.has("eventDividend") ? 1.4 : 1;
+          this.score += Math.round(650 * multiplier);
+          this.message = "EVENT OBJECTIVE +650";
+          this.messageTimer = 1.1;
         }
+        this.activeEvent = null;
+        if (this.player.lives > 0) this.unlock("eventSurvivor");
+        this.eventCooldown =
+          RANDOM_EVENT_RULES[finishedEvent].cooldown + this.random() * 8;
       }
       return;
     }
     this.eventCooldown -= dt;
-    if (this.eventCooldown <= 0 && this.state === "playing" && !this.boss) {
-      this.triggerRandomEvent();
+    const canBegin =
+      this.eventCooldown <= 0 &&
+      this.state === "playing" &&
+      !this.boss &&
+      this.player.invulnerable <= 0 &&
+      this.stateTime > 1.1 &&
+      this.messageTimer < 0.45;
+    if (!canBegin) return;
+    if (this.mode === "daily") {
+      const scheduled = this.dailyPlan.events[(this.wave - 1) % 30];
+      if (scheduled && this.dailyEventWave !== this.wave) {
+        this.dailyEventWave = this.wave;
+        this.triggerRandomEvent(scheduled);
+      }
+      return;
     }
+    this.triggerRandomEvent();
   }
 
   private triggerRandomEvent(forced?: RandomEventId) {
-    const ids = Object.keys(RANDOM_EVENT_META) as RandomEventId[];
-    const id = forced ?? ids[Math.floor(Math.random() * ids.length)];
+    const ids = compatibleEvents({
+      mode: this.mode,
+      wave: this.wave,
+      bossName: this.boss?.name,
+      formationId: this.currentFormationId,
+    });
+    const candidate =
+      forced ??
+      (this.runUpgrades.has("goldenContract") &&
+      ids.includes("goldenWave") &&
+      this.random() < 0.42
+        ? "goldenWave"
+        : ids[Math.floor(this.random() * ids.length)]);
+    if (
+      !candidate ||
+      !eventCompatible({
+        id: candidate,
+        mode: this.mode,
+        wave: this.wave,
+        bossName: this.boss?.name,
+        formationId: this.currentFormationId,
+      })
+    ) {
+      this.eventCooldown = 8;
+      return;
+    }
+    const id = candidate;
     this.activeEvent = id;
     const meta = RANDOM_EVENT_META[id];
-    this.eventTimer = meta.duration;
+    this.eventTimer = RANDOM_EVENT_RULES[id].duration;
     this.eventTickTimer = 0;
+    this.eventFailed = false;
+    this.eventObjective = 0;
     this.message = meta.announce;
     this.messageTimer = 1.6;
-    this.shake = Math.max(this.shake, 8);
+    this.shake = Math.max(this.shake, this.reducedMotion ? 0 : 8);
     this.audio.chord(260);
     if (id === "glitchedReality") this.audio.glitch();
     if (id === "goldenWave") {
@@ -735,20 +1078,24 @@ export class MonkeyInvadersEngine {
     }
     player.squash = Math.max(0, player.squash - dt * 4);
 
-    const direction = Number(this.held.right) - Number(this.held.left);
+    const direction =
+      Number(this.isHeld("right")) - Number(this.isHeld("left"));
     const target = direction * player.speed;
     const lowGrav = this.activeEvent === "lowGravity";
-    const acceleration = (direction === 0 ? 13 : 18) * (lowGrav ? 0.55 : 1);
+    const acceleration =
+      (direction === 0 ? 13 : 18) *
+      PILOT_RULES[this.pilot].acceleration *
+      (lowGrav ? 0.55 : 1);
     player.vx += (target - player.vx) * clamp(acceleration * dt, 0, 1);
     player.x += player.vx * dt;
     player.x = clamp(player.x, 18, W - player.w - 18);
     if (direction !== 0 && Math.abs(player.vx) > player.speed * 0.7)
       player.squash = Math.max(player.squash, 0.12);
 
-    if (this.held.fire && player.fireCooldown <= 0) this.fireBanana();
+    if (this.isHeld("fire") && player.fireCooldown <= 0) this.fireBanana();
     if (
       (this.just.has("special") ||
-        (this.held.special && player.special >= 100)) &&
+        (this.isHeld("special") && player.special >= 100)) &&
       player.special >= 100
     )
       this.fireSpecial();
@@ -764,16 +1111,20 @@ export class MonkeyInvadersEngine {
 
   private fireBanana() {
     const player = this.player;
+    const rule = PILOT_RULES[this.pilot];
     const rapid = player.rapidTimer > 0;
     const spread = player.spreadTimer > 0;
     const originX = player.x + player.w / 2;
     const originY = player.y + 4;
-    const angles = spread ? [-0.24, 0, 0.24] : [0];
+    const unstable =
+      this.pilot === "glitch" ? glitchBeat(this.waveElapsed) : "stable";
+    const angles = spread ? [...rule.spreadAngles] : [0];
+    if (unstable === "duplicate") angles.push(0.08);
     let kind: ProjectileKind = "banana";
     let maxPierce = 0;
-    let damage = 1;
-    let r = 8;
-    let speed = 650;
+    let damage = rule.baseDamage;
+    let r = 8 * rule.projectileScale;
+    let speed = 650 * rule.projectileSpeed;
     let life = 1.5;
     if (player.bombTimer > 0) {
       kind = "bomb";
@@ -794,24 +1145,37 @@ export class MonkeyInvadersEngine {
     if (rainbow) damage += 1;
     if (player.kongMode) damage += 2;
     else if (player.gorillaTimer > 0) damage += 1;
+    registerShot(this.combo);
     for (const angle of angles) {
+      const outerPierce =
+        this.runUpgrades.has("piercingSplit") &&
+        spread &&
+        Math.abs(angle) > 0.01;
       this.projectiles.push({
         x: originX - 7,
         y: originY,
         px: originX - 7,
         py: originY,
-        vx: Math.sin(angle) * speed,
+        vx:
+          Math.sin(angle) * speed +
+          (unstable === "bend" ? Math.sin(this.waveElapsed * 4) * 90 : 0),
         vy: -Math.cos(angle) * speed,
         r,
-        damage,
+        damage: damage * (outerPierce ? 0.72 : 1),
         hostile: false,
         life,
         kind,
         pierced: 0,
-        maxPierce,
+        maxPierce: Math.max(
+          maxPierce,
+          outerPierce || unstable === "pierce" ? 1 : 0
+        ),
         rainbow,
         returning: false,
         homeY: originY,
+        countedMiss: angle !== 0,
+        nearMissed: false,
+        hitSomething: false,
       });
     }
     player.fireCooldown =
@@ -820,8 +1184,10 @@ export class MonkeyInvadersEngine {
     this.spawnBurst(
       originX,
       originY,
-      rainbow ? `hsl(${(this.titleClock * 200) % 360},80%,60%)` : "#ffe774",
-      3,
+      rainbow
+        ? `hsl(${(this.titleClock * 200) % 360},80%,60%)`
+        : PILOTS[this.pilot].primary,
+      this.pilot === "rex" ? 6 : this.pilot === "nova" ? 5 : 3,
       20
     );
     this.audio.blip(rapid ? 640 : 520, 0.045, 0.018, "square");
@@ -829,11 +1195,11 @@ export class MonkeyInvadersEngine {
 
   private fireSpecial() {
     const player = this.player;
-    player.special = 0;
+    player.special = this.runUpgrades.has("blastBank") ? 25 : 0;
     const originX = player.x + player.w / 2;
-    for (let index = -4; index <= 4; index += 1) {
-      const angle = index * 0.12;
-      const speed = 740;
+    for (const angle of blastAngles(this.pilot)) {
+      const speed =
+        this.pilot === "rex" ? 560 : this.pilot === "bolt" ? 900 : 740;
       this.projectiles.push({
         x: originX - 14,
         y: player.y - 4,
@@ -841,20 +1207,26 @@ export class MonkeyInvadersEngine {
         py: player.y - 4,
         vx: Math.sin(angle) * speed,
         vy: -Math.cos(angle) * speed,
-        r: 14,
-        damage: 4,
+        r: this.pilot === "rex" ? 24 : this.pilot === "bolt" ? 9 : 14,
+        damage: this.pilot === "rex" ? 6 : this.pilot === "bolt" ? 7 : 4,
         hostile: false,
-        life: 1.4,
+        life: this.pilot === "rex" ? 0.72 : 1.4,
         kind: "banana",
         pierced: 0,
-        maxPierce: 0,
+        maxPierce: this.pilot === "bolt" ? 6 : this.pilot === "glitch" ? 2 : 0,
         rainbow: false,
         returning: false,
+        countedMiss: true,
+        nearMissed: false,
+        hitSomething: false,
       });
+    }
+    if (this.pilot === "glitch") {
+      for (const enemy of this.enemies) enemy.corruptTimer = 1.4;
     }
     this.shake = 12;
     this.flash = 0.55;
-    this.message = "BANANA NOVA";
+    this.message = PILOT_RULES[this.pilot].blastLabel;
     this.messageTimer = 0.75;
     this.audio.chord(this.pilot === "bolt" ? 330 : 392);
   }
@@ -869,83 +1241,142 @@ export class MonkeyInvadersEngine {
     this.boss = null;
     this.formationDirection = 1;
     this.waveDamageTaken = false;
-    this.enemyShotTimer = Math.max(0.38, 1.4 - this.wave * 0.045);
+    this.waveElapsed = 0;
+    this.waveStartScore = this.score;
+    this.waveResult = null;
+    this.showWaveResult = false;
+    this.combo = createComboState();
+    this.enemyShotTimer = Math.max(0.78, 1.36 - this.wave * 0.012);
     if (this.mode === "bossRush") {
-      this.spawnBoss(true);
+      this.currentSector = "endSignal";
+      this.currentEncounter = this.bossRushIndex + 1;
+      this.currentCircuit = 1;
+      this.spawnBoss(true, this.bossRushIndex);
       return;
     }
-    if (this.wave % 5 === 0) {
-      this.spawnBoss(false);
+    if (this.mode === "endless" && this.wave % 10 === 0) {
+      this.currentSector =
+        SECTORS[Math.floor((this.wave - 1) / 10) % SECTORS.length].id;
+      this.currentEncounter = 6;
+      this.currentCircuit = Math.floor((this.wave - 1) / 30) + 1;
+      this.spawnBoss(false, Math.floor(this.wave / 10 - 1) % BOSSES.length);
       return;
     }
-    const rows = Math.min(4, 2 + Math.floor(this.wave / 3));
-    const columns = Math.min(10, 6 + Math.floor(this.wave / 2));
-    const gapX = 68;
-    const gapY = 54;
-    const startX = W / 2 - ((columns - 1) * gapX) / 2 - 22;
+    const position = campaignPosition(
+      this.wave,
+      this.mode === "daily" ? this.dailyPlan.sectorOrder : undefined
+    );
+    this.currentSector =
+      this.mode === "endless"
+        ? SECTORS[Math.floor((this.wave - 1) / 7) % SECTORS.length].id
+        : position.sector;
+    this.currentEncounter =
+      this.mode === "endless" ? ((this.wave - 1) % 7) + 1 : position.encounter;
+    this.currentCircuit = position.circuit;
+    if (this.mode !== "endless" && position.kind === "boss") {
+      const dailyBoss = this.dailyPlan.bossOrder[position.sectorIndex];
+      this.spawnBoss(
+        false,
+        this.mode === "daily" ? dailyBoss : position.bossIndex
+      );
+      return;
+    }
+    const dailyFormation =
+      this.mode === "daily"
+        ? dailyFormationForWave(this.dailyPlan, this.wave)
+        : undefined;
+    const forcedFormationId =
+      this.mode === "classic" ? position.formationId : dailyFormation;
+    const directed = directWave({
+      mode: this.mode,
+      wave: this.wave,
+      seed: this.runSeed,
+      sector: this.currentSector,
+      event: this.activeEvent,
+      forcedFormationId,
+    });
+    const formation = directed.formation;
+    this.currentFormationId = formation.id;
+    this.formationMovement = formation.movement;
+    this.safeLane = directed.safeLane;
     const golden = this.activeEvent === "goldenWave";
-    for (let row = 0; row < rows; row += 1) {
-      for (let column = 0; column < columns; column += 1) {
-        const x = startX + column * gapX;
-        const y = 78 + row * gapY;
-        let kind: EnemyKind = "scout";
-        if (row === 0 && this.wave > 3) kind = "spinner";
-        if (row === rows - 1 && this.wave > 6) kind = "tank";
-        if (this.wave > 5 && Math.random() < 0.08) kind = "shield";
-        if (this.wave > 7 && Math.random() < 0.07) kind = "splitter";
-        if (this.wave > 9 && Math.random() < 0.07) kind = "teleporter";
-        if (this.wave > 4 && Math.random() < 0.06) kind = "kamikaze";
-        const baseHp =
-          kind === "tank"
-            ? 3
-            : kind === "spinner"
+    formation.slots.forEach((formationSlot, index) => {
+      const x = 18 + formationSlot.x * (W - 80);
+      const targetY = formationSlot.y * H;
+      const y = -54 - formationSlot.entryDelay * 90;
+      const kind = formationSlot.kind;
+      const baseHp =
+        kind === "tank"
+          ? 3
+          : kind === "spinner"
+            ? 2
+            : kind === "shield"
               ? 2
-              : kind === "shield"
+              : kind === "splitter"
                 ? 2
-                : kind === "splitter"
-                  ? 2
-                  : 1;
-        const elite =
-          this.wave > 8 &&
-          Math.random() < 0.05 + Math.min(0.12, this.wave * 0.002);
-        const hp = elite ? baseHp * 2 : baseHp;
-        this.enemies.push({
-          id: this.nextId++,
-          x,
-          y,
-          px: x,
-          py: y,
-          vx: 0,
-          vy: 0,
-          w: 44,
-          h: 36,
-          hp,
-          maxHp: hp,
+                : 1;
+      const circuitMutation =
+        this.currentCircuit > 1 &&
+        (index + this.currentCircuit + this.wave) %
+          Math.max(3, 7 - this.currentCircuit) ===
+          0;
+      const elite = formationSlot.elite || circuitMutation;
+      const hp = elite ? baseHp + 1 : baseHp;
+      this.enemies.push({
+        id: this.nextId++,
+        x,
+        y,
+        px: x,
+        py: y,
+        vx: formation.movement === "columns" ? (index % 2 === 0 ? -1 : 1) : 0,
+        vy: 0,
+        w: 44,
+        h: 36,
+        hp,
+        maxHp: hp,
+        kind,
+        phase: index * 0.48,
+        flash: 0,
+        elite,
+        isChild: false,
+        shieldHp: kind === "shield" ? 3 : 0,
+        shieldMax: kind === "shield" ? 3 : 0,
+        teleportTimer: kind === "teleporter" ? 2 + this.random() * 1.4 : 0,
+        diving: false,
+        diveDelay: 2.4 + (index % 3) * 0.8,
+        golden: golden || Boolean(formationSlot.golden),
+        mutation: mutationFor(
           kind,
-          phase: column * 0.48 + row * 0.72,
-          flash: 0,
           elite,
-          isChild: false,
-          shieldHp: kind === "shield" ? 3 : 0,
-          shieldMax: kind === "shield" ? 3 : 0,
-          teleportTimer: kind === "teleporter" ? 2 + Math.random() * 2 : 0,
-          diving: false,
-          diveDelay: 1.5 + Math.random() * 3,
-          golden,
-        });
-      }
+          this.runSeed + this.wave * 31 + index
+        ),
+        entryDelay: formationSlot.entryDelay,
+        targetX: x,
+        targetY,
+        teleportWarning: 0,
+        shieldBrokenTimer: 0,
+        cueTimer: 0,
+        corruptTimer: 0,
+      });
+    });
+    if (directed.recovery) {
+      this.message = "RECOVERY SIGNAL · GOLD TARGET";
+      this.messageTimer = 1.4;
+      this.player.special = Math.min(100, this.player.special + 20);
     }
   }
 
-  private spawnBoss(rush: boolean) {
-    const bossIndex = rush ? this.bossRushIndex : Math.floor(this.wave / 5) - 1;
+  private spawnBoss(rush: boolean, forcedIndex?: number) {
+    const bossIndex =
+      forcedIndex ??
+      (rush ? this.bossRushIndex : Math.floor(this.wave / 6) - 1);
     const normalized =
       ((bossIndex % BOSSES.length) + BOSSES.length) % BOSSES.length;
     const data = BOSSES[normalized];
     const lap = rush
       ? Math.floor(this.bossRushIndex / BOSSES.length)
       : Math.floor(this.wave / (BOSSES.length * 5));
-    const maxHp = 45 + this.wave * 8 + lap * 40;
+    const maxHp = 48 + normalized * 4 + lap * 24;
     this.boss = {
       name: data.name,
       symbol: data.symbol,
@@ -969,7 +1400,11 @@ export class MonkeyInvadersEngine {
       hazardTimer: 3.4,
       entering: true,
       enterProgress: 0,
+      vulnerable: false,
+      quietTimer: 0,
+      patternStep: 0,
     };
+    this.bossPatternStep = 0;
     this.state = "bossIntro";
     this.stateTime = 0;
     this.message = `${data.name} — ${data.tagline}`;
@@ -980,7 +1415,14 @@ export class MonkeyInvadersEngine {
 
   private spawnMeteorHazard(count = 1) {
     for (let index = 0; index < count; index += 1) {
-      const x = 40 + Math.random() * (W - 80);
+      const preferLeft = index % 2 === 0;
+      const leftWidth = Math.max(0.08, this.safeLane.from - 0.04);
+      const rightStart = Math.min(0.92, this.safeLane.to + 0.04);
+      const lane =
+        preferLeft && leftWidth > 0.1
+          ? 0.04 + this.random() * (leftWidth - 0.04)
+          : rightStart + this.random() * Math.max(0.02, 0.96 - rightStart);
+      const x = clamp(lane * W, 40, W - 40);
       this.hazards.push({
         x,
         y: -20,
@@ -994,6 +1436,41 @@ export class MonkeyInvadersEngine {
         telegraph: 0.6,
         life: 3,
         dealt: false,
+        warningLabel: "METEOR · OPEN LANE",
+        safeGap: (this.safeLane.from + this.safeLane.to) / 2,
+      });
+    }
+  }
+
+  private spawnBossHazards(name: string, phase: BossAttackPhase) {
+    const plan = bossHazardPlan(name, phase, this.bossPatternStep);
+    for (const lane of plan.lanes) {
+      if (Math.abs(lane - plan.safeGap) < plan.width) continue;
+      if (plan.kind === "meteor") {
+        this.safeLane = {
+          from: clamp(plan.safeGap - 0.1, 0.04, 0.84),
+          to: clamp(plan.safeGap + 0.1, 0.16, 0.96),
+        };
+        this.spawnMeteorHazard(1);
+        continue;
+      }
+      const x = lane * W;
+      const y = (48 + PLAYER_Y) / 2;
+      this.hazards.push({
+        x,
+        y,
+        px: x,
+        py: y,
+        vx: 0,
+        vy: 0,
+        w: plan.width * W,
+        h: PLAYER_Y - 48,
+        kind: plan.kind,
+        telegraph: 0.95,
+        life: 2.25,
+        dealt: false,
+        warningLabel: `${plan.label} · GAP ${plan.safeGap < 0.34 ? "LEFT" : plan.safeGap > 0.66 ? "RIGHT" : "CENTRE"}`,
+        safeGap: plan.safeGap,
       });
     }
   }
@@ -1003,9 +1480,9 @@ export class MonkeyInvadersEngine {
     const alive = this.enemies.filter(enemy => enemy.hp > 0);
     if (alive.length === 0) return;
     const speedBase =
-      42 +
-      this.wave * (this.mode === "endless" ? 6 : 5) +
-      (1 - alive.length / Math.max(1, this.enemies.length)) * 75;
+      48 +
+      Math.min(34, (this.currentCircuit - 1) * 7) +
+      (1 - alive.length / Math.max(1, this.enemies.length)) * 52;
     const panic = this.activeEvent === "alienPanic";
     let hitEdge = false;
     const playerBox = {
@@ -1018,44 +1495,95 @@ export class MonkeyInvadersEngine {
       enemy.px = enemy.x;
       enemy.py = enemy.y;
       enemy.flash = Math.max(0, enemy.flash - dt * 6);
+      enemy.cueTimer = Math.max(0, (enemy.cueTimer ?? 0) - dt);
+      enemy.corruptTimer = Math.max(0, (enemy.corruptTimer ?? 0) - dt);
       enemy.phase += dt * (enemy.kind === "spinner" ? 4.2 : 2.1);
-      if (enemy.kind === "shield")
-        enemy.shieldHp = Math.min(enemy.shieldMax, enemy.shieldHp + dt * 4);
+      if ((enemy.entryDelay ?? 0) > 0) {
+        enemy.entryDelay = Math.max(0, (enemy.entryDelay ?? 0) - dt);
+        continue;
+      }
+      if (enemy.y < (enemy.targetY ?? enemy.y)) {
+        enemy.y = Math.min(enemy.targetY ?? enemy.y, enemy.y + 185 * dt);
+        enemy.x += ((enemy.targetX ?? enemy.x) - enemy.x) * Math.min(1, dt * 8);
+        continue;
+      }
+      if (enemy.kind === "shield") {
+        enemy.shieldBrokenTimer = Math.max(
+          0,
+          (enemy.shieldBrokenTimer ?? 0) - dt
+        );
+        if ((enemy.shieldBrokenTimer ?? 0) <= 0 && enemy.shieldHp <= 0)
+          enemy.shieldHp = enemy.shieldMax;
+      }
       if (enemy.kind === "teleporter") {
-        enemy.teleportTimer -= dt;
-        if (enemy.teleportTimer <= 0) {
-          this.spawnBurst(
-            enemy.x + enemy.w / 2,
-            enemy.y + enemy.h / 2,
-            "#c9a5ff",
-            10,
-            30
+        if ((enemy.teleportWarning ?? 0) > 0) {
+          enemy.teleportWarning = Math.max(
+            0,
+            (enemy.teleportWarning ?? 0) - dt
           );
-          enemy.x = clamp(
-            enemy.x + (Math.random() - 0.5) * 260,
-            18,
-            W - enemy.w - 18
-          );
-          this.spawnBurst(
-            enemy.x + enemy.w / 2,
-            enemy.y + enemy.h / 2,
-            "#c9a5ff",
-            10,
-            30
-          );
-          enemy.teleportTimer = 2.6 + Math.random() * 2.2;
+          if (
+            enemy.teleportWarning <= 0 &&
+            enemy.teleportTargetX !== undefined
+          ) {
+            this.spawnBurst(
+              enemy.x + enemy.w / 2,
+              enemy.y + enemy.h / 2,
+              "#c9a5ff",
+              10,
+              30
+            );
+            enemy.x = enemy.teleportTargetX;
+            enemy.teleportTargetX = undefined;
+            this.spawnBurst(
+              enemy.x + enemy.w / 2,
+              enemy.y + enemy.h / 2,
+              "#c9a5ff",
+              10,
+              30
+            );
+            enemy.teleportTimer = 2.8 + this.random() * 1.4;
+          }
+        } else {
+          enemy.teleportTimer -= dt;
+          if (enemy.teleportTimer <= 0) {
+            enemy.teleportTargetX = clamp(
+              enemy.x +
+                (this.random() < 0.5 ? -1 : 1) * (170 + this.random() * 90),
+              18,
+              W - enemy.w - 18
+            );
+            enemy.teleportWarning = 0.72;
+            enemy.cueTimer = 0.72;
+            this.audio.blip(
+              ENEMY_RULES.teleporter.audioFrequency,
+              0.08,
+              0.014,
+              "triangle"
+            );
+          }
         }
       }
       if (enemy.kind === "kamikaze" && !enemy.diving) {
         enemy.diveDelay -= dt;
-        if (enemy.diveDelay <= 0 && Math.random() < dt * 0.35)
+        if (enemy.diveDelay <= 0) {
           enemy.diving = true;
+          enemy.cueTimer = 0;
+        } else if (enemy.diveDelay < 0.8) {
+          if ((enemy.cueTimer ?? 0) <= 0)
+            this.audio.blip(
+              ENEMY_RULES.kamikaze.audioFrequency,
+              0.12,
+              0.02,
+              "sawtooth"
+            );
+          enemy.cueTimer = Math.max(enemy.cueTimer ?? 0, enemy.diveDelay);
+        }
       }
       if (enemy.kind === "kamikaze" && enemy.diving) {
         const targetX = this.player.x + this.player.w / 2;
         const dx = targetX - (enemy.x + enemy.w / 2);
         enemy.x += clamp(dx, -220 * dt, 220 * dt);
-        enemy.y += (260 + this.wave * 3) * dt;
+        enemy.y += (260 + Math.min(55, this.currentCircuit * 9)) * dt;
         const box = { x: enemy.x, y: enemy.y, w: enemy.w, h: enemy.h };
         if (overlap(box, playerBox)) {
           this.spawnBurst(
@@ -1072,13 +1600,34 @@ export class MonkeyInvadersEngine {
       }
       let speed = speedBase;
       let dir = this.formationDirection;
+      if ((enemy.corruptTimer ?? 0) > 0) dir *= -1;
       if (panic) {
-        dir *= Math.random() < 0.02 ? -1 : 1;
-        speed *= 1.4;
+        dir *= Math.sin(this.waveElapsed * 2.2) >= 0 ? -1 : 1;
+        speed *= 0.85;
       }
+      if (this.formationMovement === "columns") dir = enemy.vx || 1;
+      if (
+        this.formationMovement === "ring" ||
+        this.formationMovement === "spiral"
+      ) {
+        enemy.y += Math.sin(enemy.phase * 0.7) * 9 * dt;
+        speed *= 0.72;
+      }
+      if (this.formationMovement === "arc")
+        enemy.y += Math.sin(enemy.phase) * 5 * dt;
+      if (this.formationMovement === "glitch")
+        dir *= Math.floor(this.waveElapsed * 1.5) % 2 ? -1 : 1;
       enemy.x += speed * dir * dt;
       if (panic) enemy.y += Math.sin(enemy.phase * 3) * 24 * dt;
-      if (enemy.x < 18 || enemy.x + enemy.w > W - 18) hitEdge = true;
+      if (enemy.x < 18 || enemy.x + enemy.w > W - 18) {
+        if (this.formationMovement === "columns") {
+          enemy.x = clamp(enemy.x, 18, W - enemy.w - 18);
+          enemy.vx = -(enemy.vx || 1);
+          enemy.y += 8;
+        } else {
+          hitEdge = true;
+        }
+      }
     }
     if (hitEdge) {
       this.formationDirection *= -1;
@@ -1092,14 +1641,24 @@ export class MonkeyInvadersEngine {
     this.enemyShotTimer -= dt;
     if (this.enemyShotTimer <= 0) {
       const shooters = alive.filter(
-        enemy => !(enemy.kind === "kamikaze" && enemy.diving)
+        enemy =>
+          (enemy.entryDelay ?? 0) <= 0 &&
+          enemy.y >= (enemy.targetY ?? enemy.y) - 1 &&
+          !(enemy.kind === "kamikaze" && enemy.diving) &&
+          !(enemy.kind === "shield" && enemy.shieldHp <= 0)
       );
-      if (shooters.length > 0) {
-        const shooter = shooters[Math.floor(Math.random() * shooters.length)];
+      const hostileCount = this.projectiles.filter(
+        projectile => projectile.hostile
+      ).length;
+      if (shooters.length > 0 && hostileCount < 14 && !panic) {
+        const pressure = shooters.filter(enemy => enemy.kind === "spinner");
+        const pool = pressure.length > 0 ? pressure : shooters;
+        const shooter = pool[Math.floor(this.random() * pool.length)];
         const targetX = this.player.x + this.player.w / 2;
         const dx = targetX - (shooter.x + shooter.w / 2);
         const length = Math.max(1, Math.hypot(dx, H - shooter.y));
-        const projectileSpeed = 220 + this.wave * 7;
+        const projectileSpeed =
+          225 + Math.min(70, (this.currentCircuit - 1) * 16);
         this.projectiles.push({
           x: shooter.x + shooter.w / 2 - 5,
           y: shooter.y + shooter.h,
@@ -1116,11 +1675,24 @@ export class MonkeyInvadersEngine {
           maxPierce: 0,
           rainbow: false,
           returning: false,
+          countedMiss: true,
+          nearMissed: false,
+          hitSomething: false,
         });
-        this.audio.blip(150, 0.06, 0.01, "sawtooth");
+        this.audio.blip(
+          ENEMY_RULES[shooter.kind].audioFrequency,
+          0.06,
+          0.01,
+          "sawtooth"
+        );
       }
+      const goldenPressure = this.activeEvent === "goldenWave" ? 0.82 : 1;
+      const surgePressure = this.activeEvent === "powerSurge" ? 0.82 : 1;
       this.enemyShotTimer =
-        Math.max(0.34, 1.32 - this.wave * 0.035) * (0.75 + Math.random() * 0.6);
+        Math.max(0.7, 1.28 - Math.min(0.35, this.currentCircuit * 0.08)) *
+        goldenPressure *
+        surgePressure *
+        (0.88 + this.random() * 0.24);
     }
     for (const enemy of alive) {
       if (enemy.kind === "kamikaze" && enemy.diving) {
@@ -1142,11 +1714,9 @@ export class MonkeyInvadersEngine {
     boss.py = boss.y;
     boss.phase += dt;
     boss.flash = Math.max(0, boss.flash - dt * 7);
-    const targetX =
-      W / 2 -
-      boss.w / 2 +
-      Math.sin(boss.phase * (0.8 + this.wave * 0.01)) * 280;
-    const targetY = 48 + Math.sin(boss.phase * 1.7) * 20;
+    const pose = bossPose(boss.name, boss.attackPhase, boss.phase);
+    const targetX = clamp(pose.x * W - boss.w / 2, 18, W - boss.w - 18);
+    const targetY = clamp(pose.y * H, 48, 150);
     if (boss.entering) {
       boss.enterProgress = Math.min(1, boss.enterProgress + dt / 0.8);
       boss.x = targetX;
@@ -1157,8 +1727,7 @@ export class MonkeyInvadersEngine {
     boss.x = targetX;
     boss.y = targetY;
 
-    const ratio = boss.hp / boss.maxHp;
-    const newPhase: BossAttackPhase = ratio < 0.34 ? 2 : ratio < 0.67 ? 1 : 0;
+    const newPhase = bossPhaseFromHealth(boss.hp, boss.maxHp);
     if (newPhase > boss.announcedPhase) {
       boss.announcedPhase = newPhase;
       this.shake = Math.max(this.shake, 16);
@@ -1169,6 +1738,13 @@ export class MonkeyInvadersEngine {
         `${boss.name} ENTERS PHASE ${newPhase + 1}`;
       this.messageTimer = 1.4;
       this.audio.chord(160 + newPhase * 40);
+      this.score += 350 * newPhase;
+      this.projectiles = this.projectiles.filter(
+        projectile => !projectile.hostile
+      );
+      this.hazards = [];
+      boss.shotTimer = bossPattern(boss.name).quietBeat;
+      boss.hazardTimer = bossPattern(boss.name).quietBeat + 1.2;
       this.spawnBurst(
         boss.x + boss.w / 2,
         boss.y + boss.h / 2,
@@ -1178,39 +1754,54 @@ export class MonkeyInvadersEngine {
       );
     }
     boss.attackPhase = newPhase;
-    const phaseMul = 1 + boss.attackPhase * 0.35;
+    const activePose = bossPose(boss.name, boss.attackPhase, boss.phase);
+    boss.vulnerable = activePose.vulnerable;
+    boss.quietTimer = activePose.quiet ? bossPattern(boss.name).quietBeat : 0;
     boss.shotTimer -= dt;
-    if (boss.shotTimer <= 0) {
-      const bursts =
-        3 + Math.min(4, Math.floor(this.wave / 10)) + boss.attackPhase;
-      for (let index = 0; index < bursts; index += 1) {
-        const spread = (index - (bursts - 1) / 2) * 0.18;
-        const speed = (250 + this.wave * 4) * phaseMul;
-        this.projectiles.push({
-          x: boss.x + boss.w / 2 - 6,
-          y: boss.y + boss.h - 10,
-          px: boss.x + boss.w / 2 - 6,
-          py: boss.y + boss.h - 10,
-          vx: Math.sin(spread) * speed,
-          vy: Math.cos(spread) * speed,
-          r: 8,
-          damage: 1,
-          hostile: true,
-          life: 3,
-          kind: "bolt",
-          pierced: 0,
-          maxPierce: 0,
-          rainbow: false,
-          returning: false,
-        });
+    if (boss.shotTimer <= 0 && !activePose.quiet) {
+      const volley = bossVolley(
+        boss.name,
+        boss.attackPhase,
+        this.bossPatternStep
+      );
+      const hostileCount = this.projectiles.filter(
+        projectile => projectile.hostile
+      ).length;
+      if (hostileCount < 16) {
+        for (const spread of volley.angles) {
+          this.projectiles.push({
+            x: boss.x + boss.w / 2 - 6,
+            y: boss.y + boss.h - 10,
+            px: boss.x + boss.w / 2 - 6,
+            py: boss.y + boss.h - 10,
+            vx: Math.sin(spread) * volley.speed,
+            vy: Math.cos(spread) * volley.speed,
+            r: 8,
+            damage: 1,
+            hostile: true,
+            life: 3,
+            kind: "bolt",
+            pierced: 0,
+            maxPierce: 0,
+            rainbow: false,
+            returning: false,
+            countedMiss: true,
+            nearMissed: false,
+            hitSomething: false,
+          });
+        }
       }
-      boss.shotTimer = Math.max(0.3, (1.08 - this.wave * 0.02) / phaseMul);
+      this.message = volley.label;
+      this.messageTimer = 0.45;
+      this.bossPatternStep += 1;
+      boss.patternStep = this.bossPatternStep;
+      boss.shotTimer = Math.max(0.72, 1.35 - boss.attackPhase * 0.16);
       this.audio.blip(92, 0.12, 0.028, "sawtooth");
     }
     boss.hazardTimer -= dt;
-    if (boss.hazardTimer <= 0) {
-      this.spawnMeteorHazard(2 + boss.attackPhase);
-      boss.hazardTimer = Math.max(2.2, 5 - boss.attackPhase * 1.1);
+    if (boss.hazardTimer <= 0 && !activePose.quiet) {
+      this.spawnBossHazards(boss.name, boss.attackPhase);
+      boss.hazardTimer = Math.max(3.4, 5.2 - boss.attackPhase * 0.45);
     }
   }
 
@@ -1222,8 +1813,10 @@ export class MonkeyInvadersEngine {
         hazard.telegraph -= dt;
         continue;
       }
-      hazard.vy = Math.min(460, hazard.vy + 900 * dt);
-      hazard.y += hazard.vy * dt;
+      if (hazard.kind === "meteor") {
+        hazard.vy = Math.min(460, hazard.vy + 900 * dt);
+        hazard.y += hazard.vy * dt;
+      }
       hazard.life -= dt;
     }
     this.hazards = this.hazards.filter(
@@ -1239,15 +1832,48 @@ export class MonkeyInvadersEngine {
       const scale = projectile.hostile ? slow : 1;
       projectile.x += projectile.vx * dt * scale;
       projectile.y += projectile.vy * dt * scale;
+      if (this.activeEvent === "lowGravity") projectile.vy += 34 * dt * scale;
       projectile.life -= dt;
+      if (projectile.hostile && !projectile.nearMissed) {
+        const dx = projectile.x - (this.player.x + this.player.w / 2);
+        const dy = projectile.y - (this.player.y + this.player.h / 2);
+        const distance = Math.hypot(dx, dy);
+        if (distance > 34 && distance < 50 && Math.abs(dy) < 38) {
+          projectile.nearMissed = true;
+          registerNearMiss(this.combo);
+          this.score += 20;
+          this.eventObjective += 1;
+          if (this.runUpgrades.has("nearMissCharge"))
+            this.player.special = clamp(this.player.special + 5, 0, 100);
+        }
+      }
       if (
         projectile.kind === "boomerang" &&
         !projectile.returning &&
-        projectile.y < H * 0.22
+        projectile.y < H * (this.runUpgrades.has("quickReturn") ? 0.34 : 0.22)
       ) {
         projectile.returning = true;
-        projectile.vy = Math.abs(projectile.vy) * 0.9;
-        projectile.vx += (Math.random() - 0.5) * 160;
+        projectile.vy =
+          Math.abs(projectile.vy) *
+          (this.runUpgrades.has("quickReturn") ? 1.18 : 0.9);
+        projectile.vx += (this.random() - 0.5) * 160;
+      }
+    }
+    for (const projectile of this.projectiles) {
+      const expired =
+        projectile.life <= 0 ||
+        projectile.x <= -40 ||
+        projectile.x >= W + 40 ||
+        projectile.y <= -60 ||
+        projectile.y >= H + 60;
+      if (
+        expired &&
+        !projectile.hostile &&
+        !projectile.hitSomething &&
+        !projectile.countedMiss
+      ) {
+        projectile.countedMiss = true;
+        registerMiss(this.combo);
       }
     }
     this.projectiles = this.projectiles.filter(
@@ -1270,9 +1896,15 @@ export class MonkeyInvadersEngine {
         const dx = this.player.x + this.player.w / 2 - pickup.x;
         const dy = this.player.y + this.player.h / 2 - pickup.y;
         const dist = Math.max(1, Math.hypot(dx, dy));
-        const pull = 420;
-        pickup.x += (dx / dist) * pull * dt;
-        pickup.y += (dy / dist) * pull * dt;
+        const upgraded = this.runUpgrades.has("longMagnet");
+        const range = upgraded ? 430 : 310;
+        const pull = upgraded ? 560 : 420;
+        if (dist <= range) {
+          pickup.x += (dx / dist) * pull * dt;
+          pickup.y += (dy / dist) * pull * dt;
+        } else {
+          pickup.y += pickup.vy * gravMul * dt;
+        }
       } else {
         pickup.y += pickup.vy * gravMul * dt;
         pickup.x += pickup.vx * dt;
@@ -1327,7 +1959,7 @@ export class MonkeyInvadersEngine {
       enemy.flash = 1;
       if (enemy.hp <= 0) this.killEnemy(enemy);
     }
-    if (this.boss) {
+    if (this.boss?.vulnerable) {
       const dist = Math.hypot(
         this.boss.x + this.boss.w / 2 - x,
         this.boss.y + this.boss.h / 2 - y
@@ -1366,6 +1998,8 @@ export class MonkeyInvadersEngine {
       let hit = false;
       for (const enemy of this.enemies) {
         if (enemy.hp <= 0 || !overlap(projectileBox, enemy)) continue;
+        projectile.hitSomething = true;
+        registerHit(this.combo);
         if (projectile.kind === "bomb") {
           this.explodeBomb(projectile.x, projectile.y, 74, 3);
           projectile.life = 0;
@@ -1377,6 +2011,15 @@ export class MonkeyInvadersEngine {
           enemy.flash = 1;
           this.spawnBurst(projectile.x, projectile.y, "#8fe6ff", 6, 40);
           this.audio.blip(300, 0.03, 0.01, "square");
+          if (enemy.shieldHp <= 0) {
+            enemy.shieldHp = 0;
+            enemy.shieldBrokenTimer = 2.2;
+            this.message = "SHIELD BREAK · OPEN WINDOW";
+            this.messageTimer = 0.65;
+            this.shake = Math.max(this.shake, this.reducedMotion ? 0 : 6);
+            this.hitStop = Math.max(this.hitStop, 0.045);
+            this.audio.chord(310);
+          }
           if (
             projectile.kind === "laser" &&
             projectile.pierced < projectile.maxPierce
@@ -1402,6 +2045,16 @@ export class MonkeyInvadersEngine {
       if (hit) continue;
       const boss = this.boss;
       if (boss && overlap(projectileBox, boss)) {
+        projectile.hitSomething = true;
+        if (!boss.vulnerable) {
+          registerMiss(this.combo);
+          projectile.life = 0;
+          this.spawnBurst(projectile.x, projectile.y, "#ffffff", 3, 20);
+          this.message = `${boss.name} CLOSED · ${bossPattern(boss.name).opening}`;
+          this.messageTimer = 0.32;
+          continue;
+        }
+        registerHit(this.combo);
         if (projectile.kind === "bomb") {
           this.explodeBomb(projectile.x, projectile.y, 90, 6);
           projectile.life = 0;
@@ -1409,7 +2062,11 @@ export class MonkeyInvadersEngine {
           boss.hp -= projectile.damage;
           boss.flash = 1;
           projectile.life = 0;
-          this.score += 8 * projectile.damage;
+          this.score += Math.round(
+            8 *
+              projectile.damage *
+              pilotAccuracyBonus(this.pilot, this.combo.consecutiveHits)
+          );
           this.player.special = clamp(
             this.player.special +
               1.8 * projectile.damage * this.specialGainMultiplier(),
@@ -1432,6 +2089,7 @@ export class MonkeyInvadersEngine {
 
     for (const hazard of this.hazards) {
       if (hazard.dealt || hazard.telegraph > 0) continue;
+      if (hazard.warningLabel?.includes("HARMLESS")) continue;
       const box = {
         x: hazard.x - hazard.w / 2,
         y: hazard.y - hazard.h / 2,
@@ -1459,7 +2117,11 @@ export class MonkeyInvadersEngine {
       const collected = Persistence.recordPickupCollected(pickup.kind);
       if (collected.size >= Object.keys(PICKUP_META).length)
         this.unlock("collector");
-      this.score += 100;
+      const normalizedX = pickup.x / W;
+      const risky =
+        normalizedX < this.safeLane.from || normalizedX > this.safeLane.to;
+      this.score += risky ? 260 : 100;
+      if (risky) this.eventObjective += 1;
       this.message = `${PICKUP_META[pickup.kind].label} ONLINE`;
       this.messageTimer = 0.9;
       this.audio.chord(440);
@@ -1478,47 +2140,53 @@ export class MonkeyInvadersEngine {
     const player = this.player;
     switch (kind) {
       case "rapid":
-        player.rapidTimer = 9;
+        player.rapidTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "spread":
-        player.spreadTimer = 9;
+        player.spreadTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "shield":
-        player.shield = 12;
+        player.shield = pickupDuration(kind, this.runUpgrades);
+        this.shieldLayers = shieldHits(this.runUpgrades);
         break;
       case "special":
         player.special = clamp(player.special + 55, 0, 100);
         break;
       case "magnet":
-        player.magnetTimer = 10;
+        player.magnetTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "laser":
-        player.laserTimer = 8;
+        player.laserTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "freeze":
-        player.freezeFieldTimer = 5;
+        player.freezeFieldTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "boomerang":
-        player.boomerangTimer = 10;
+        player.boomerangTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "bomb":
-        player.bombTimer = 10;
+        player.bombTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "rainbow":
-        player.rainbowTimer = 10;
+        player.rainbowTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "gorilla":
-        player.gorillaTimer = 8;
+        player.gorillaTimer = pickupDuration(kind, this.runUpgrades);
         this.kongZapTimer = Math.min(this.kongZapTimer || 1, 0.6);
         break;
       case "timeSlow":
-        player.timeSlowTimer = 6;
+        player.timeSlowTimer = pickupDuration(kind, this.runUpgrades);
         break;
       case "mystery": {
         const others = (Object.keys(PICKUP_META) as PickupKind[]).filter(
           candidate => candidate !== "mystery"
         );
-        const pick = others[Math.floor(Math.random() * others.length)];
+        const filtered = this.runUpgrades.has("saferMystery")
+          ? others.filter(
+              candidate => candidate !== "timeSlow" && candidate !== "freeze"
+            )
+          : others;
+        const pick = filtered[Math.floor(this.random() * filtered.length)];
         this.applyPickupEffect(pick);
         break;
       }
@@ -1543,8 +2211,26 @@ export class MonkeyInvadersEngine {
                   ? 50
                   : 35;
     if (enemy.elite) value *= 2;
-    if (enemy.golden) value *= 3;
-    this.score += value + this.wave * 3;
+    if (enemy.golden) value *= this.runUpgrades.has("goldenContract") ? 4.5 : 3;
+    if (
+      this.player.freezeFieldTimer > 0 &&
+      this.runUpgrades.has("frozenDividend")
+    )
+      value *= 1.35;
+    const simultaneous = this.waveElapsed - this.lastKillAt <= 0.22;
+    value *= pilotKillMultiplier(this.pilot, {
+      simultaneous,
+      closeRange: enemy.y > H * 0.42,
+      glitchUnstable: glitchBeat(this.waveElapsed) !== "stable",
+    });
+    registerKill(this.combo, simultaneous);
+    this.lastKillAt = this.waveElapsed;
+    this.score += Math.round(
+      (value + Math.min(90, this.wave * 3)) *
+        comboMultiplier(this.combo) *
+        pilotAccuracyBonus(this.pilot, this.combo.consecutiveHits)
+    );
+    if (this.activeEvent) this.eventObjective += 1;
     const gain =
       (enemy.kind === "tank" ? 12 : 7) * this.specialGainMultiplier();
     this.player.special = clamp(this.player.special + gain, 0, 100);
@@ -1565,9 +2251,12 @@ export class MonkeyInvadersEngine {
     if (!this.achievementsCache.has("firstBlood")) this.unlock("firstBlood");
     if (enemy.kind === "splitter" && !enemy.isChild)
       this.spawnSplitterChildren(enemy);
-    if (Math.random() < 0.11)
+    const pickupChance =
+      0.11 +
+      (this.runUpgrades.has("goldenContract") && enemy.golden ? 0.08 : 0);
+    if (this.random() < pickupChance)
       this.dropPickup(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
-    if (Math.random() < 0.4) {
+    if (this.random() < 0.4) {
       this.dyingAliens.push({
         x: enemy.x + enemy.w / 2,
         y: enemy.y + enemy.h / 2,
@@ -1576,12 +2265,18 @@ export class MonkeyInvadersEngine {
         timer: 0.9,
         emoji:
           ABSURD_DEATH_EMOJI[
-            Math.floor(Math.random() * ABSURD_DEATH_EMOJI.length)
+            Math.floor(this.random() * ABSURD_DEATH_EMOJI.length)
           ],
+        kind: enemy.kind,
       });
     }
     this.checkScoreAchievements();
-    this.audio.blip(enemy.kind === "tank" ? 120 : 190, 0.07, 0.026, "square");
+    this.audio.blip(
+      ENEMY_RULES[enemy.kind].audioFrequency,
+      0.07,
+      0.026,
+      "square"
+    );
   }
 
   private spawnSplitterChildren(enemy: Enemy) {
@@ -1601,7 +2296,7 @@ export class MonkeyInvadersEngine {
         hp: 1,
         maxHp: 1,
         kind: "scout",
-        phase: Math.random() * Math.PI * 2,
+        phase: this.random() * Math.PI * 2,
         flash: 0.6,
         elite: false,
         isChild: true,
@@ -1611,6 +2306,14 @@ export class MonkeyInvadersEngine {
         diving: false,
         diveDelay: 0,
         golden: enemy.golden,
+        mutation: "standard",
+        entryDelay: 0,
+        targetX: x,
+        targetY: y,
+        teleportWarning: 0,
+        shieldBrokenTimer: 0,
+        cueTimer: 0,
+        corruptTimer: 0,
       });
     }
     this.spawnBurst(
@@ -1629,7 +2332,7 @@ export class MonkeyInvadersEngine {
       y,
       px: x,
       py: y,
-      vx: (Math.random() - 0.5) * 42,
+      vx: (this.random() - 0.5) * 42,
       vy: 78,
       kind,
       r: 14,
@@ -1643,7 +2346,7 @@ export class MonkeyInvadersEngine {
       { weight: number },
     ][];
     const total = entries.reduce((sum, [, meta]) => sum + meta.weight, 0);
-    let roll = Math.random() * total;
+    let roll = this.random() * total;
     for (const [kind, meta] of entries) {
       roll -= meta.weight;
       if (roll <= 0) return kind;
@@ -1654,7 +2357,9 @@ export class MonkeyInvadersEngine {
   private killBoss() {
     const boss = this.boss;
     if (!boss) return;
+    const pattern = bossPattern(boss.name);
     this.score += 2500 + this.wave * 120;
+    if (!this.waveDamageTaken) this.score += 900;
     this.player.special = 100;
     this.spawnBurst(
       boss.x + boss.w / 2,
@@ -1680,7 +2385,7 @@ export class MonkeyInvadersEngine {
     this.shake = 20;
     this.flash = 0.9;
     this.hitStop = Math.max(this.hitStop, 0.1);
-    this.message = `${boss.name} SPLIT OPEN`;
+    this.message = pattern.defeat;
     this.messageTimer = 1.6;
     this.boss = null;
     this.audio.chord(196);
@@ -1691,22 +2396,47 @@ export class MonkeyInvadersEngine {
     }
     if (this.mode === "bossRush") {
       this.bossRushIndex += 1;
-      if (this.bossRushIndex % BOSSES.length === 0)
+      if (this.bossRushIndex >= BOSSES.length) {
         this.unlock("bossRushChampion");
+        this.finalizeWaveResult(true);
+        this.finishRun("ALL THIRTEEN SIGNALS CLEARED");
+        return;
+      }
+      if (this.bossRushIndex % 3 === 0) {
+        this.openUpgradeChoice();
+        return;
+      }
+      this.player.special = Math.min(100, this.player.special + 35);
+      if (this.player.lives < 3 && this.bossRushIndex % 4 === 0)
+        this.player.lives += 1;
+      this.finalizeWaveResult(true);
+      this.state = "waveClear";
+      this.waveTimer = 1.1;
+      return;
     }
+    if (this.mode === "daily" && this.wave % 30 === 0) {
+      this.unlock("dailyChallenger");
+      this.finalizeWaveResult(true);
+      this.finishRun("DAILY SIGNAL COMPLETE");
+      return;
+    }
+    this.openUpgradeChoice();
     this.checkScoreAchievements();
     this.refreshBananaSkin();
   }
 
   private damagePlayer() {
     const player = this.player;
-    this.waveDamageTaken = true;
     if (player.invulnerable > 0) return;
+    this.waveDamageTaken = true;
+    this.eventFailed = true;
     if (player.shield > 0) {
-      player.shield = 0;
+      this.shieldLayers = Math.max(0, this.shieldLayers - 1);
+      player.shield =
+        this.shieldLayers > 0 ? Math.max(2.5, player.shield * 0.55) : 0;
       player.invulnerable = 0.7;
       player.squash = Math.max(player.squash, 0.2);
-      this.message = "SHIELD POP";
+      this.message = this.shieldLayers > 0 ? "SHIELD LAYER HELD" : "SHIELD POP";
       this.messageTimer = 0.7;
       this.spawnBurst(
         player.x + player.w / 2,
@@ -1722,7 +2452,9 @@ export class MonkeyInvadersEngine {
     player.lives -= 1;
     player.invulnerable = 2;
     player.squash = Math.max(player.squash, 0.32);
-    player.x = W / 2 - player.w / 2;
+    const centre = W / 2 - player.w / 2;
+    player.x +=
+      (centre - player.x) * PILOT_RULES[this.pilot].knockbackResistance;
     player.vx = 0;
     this.shake = 14;
     this.flash = 0.65;
@@ -1749,15 +2481,24 @@ export class MonkeyInvadersEngine {
     const scoreValid = !this.cheatUsed;
     if (scoreValid) {
       if (this.mode === "daily") {
-        const record = Persistence.getDailyRecord(this.dailyDateKey);
+        const record = Persistence.getDailyRecord(
+          this.dailyDateKey,
+          DAILY_SEED_VERSION
+        );
         if (this.score > record) {
-          Persistence.setDailyRecord(this.dailyDateKey, this.score);
+          Persistence.setDailyRecord(
+            this.dailyDateKey,
+            this.score,
+            DAILY_SEED_VERSION
+          );
           this.highScore = this.score;
         }
       } else if (this.score > this.highScore) {
         this.highScore = this.score;
         Persistence.setHighScore(this.mode, this.highScore);
       }
+      Persistence.setPilotBestScore(this.pilot, this.mode, this.score);
+      this.pilotBestScore = Math.max(this.pilotBestScore, this.score);
     }
     if (!scoreValid && this.score > this.highScore) {
       this.message = "CHEAT RUN — SCORE NOT RECORDED";
@@ -1778,8 +2519,9 @@ export class MonkeyInvadersEngine {
     if (this.state !== "playing") return;
     this.state = "waveClear";
     this.stateTime = 0;
-    this.waveTimer = 1.45;
     this.score += 250 + this.wave * 60;
+    this.finalizeWaveResult();
+    this.waveTimer = this.showWaveResult ? 2.05 : 1.15;
     this.player.special = clamp(this.player.special + 18, 0, 100);
     this.message = "SECTOR CLEAN";
     this.messageTimer = 1.2;
@@ -1791,9 +2533,12 @@ export class MonkeyInvadersEngine {
   }
 
   private checkScoreAchievements() {
-    if (this.score >= 25000) this.unlock("richMonkey");
-    if (this.mode === "endless" && this.score >= 50000)
-      this.unlock("endlessLegend");
+    for (const id of achievementsFor({
+      score: this.score,
+      wave: this.wave,
+      mode: this.mode,
+    }))
+      this.unlock(id);
   }
 
   private refreshBananaSkin() {
@@ -1832,7 +2577,10 @@ export class MonkeyInvadersEngine {
     count: number,
     gravity = 55
   ) {
-    for (let index = 0; index < count; index += 1) {
+    const available = Math.max(0, 260 - this.particles.length);
+    const readableCount = this.reducedMotion ? Math.min(8, count) : count;
+    const finalCount = Math.min(available, readableCount);
+    for (let index = 0; index < finalCount; index += 1) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 45 + Math.random() * 230;
       this.particles.push({
@@ -1854,8 +2602,11 @@ export class MonkeyInvadersEngine {
   private render() {
     const ctx = this.ctx;
     ctx.save();
-    const shakeX = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
-    const shakeY = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
+    const allowShake = this.cameraShakeEnabled && !this.reducedMotion;
+    const shakeX =
+      allowShake && this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
+    const shakeY =
+      allowShake && this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
     ctx.translate(shakeX, shakeY);
     this.drawBackground();
     if (this.state === "boot") {
@@ -1865,20 +2616,27 @@ export class MonkeyInvadersEngine {
     } else {
       this.drawPlayfield();
       if (this.state === "bossIntro") this.drawBossWarning();
+      if (this.state === "upgradeChoice") this.drawUpgradeChoice();
       if (this.state === "paused") this.drawPause();
       if (this.state === "gameOver") this.drawGameOver();
     }
     if (this.flash > 0) {
-      ctx.fillStyle = `rgba(255,255,255,${this.flash * 0.28})`;
+      ctx.fillStyle = `rgba(255,255,255,${this.flash * (this.reducedMotion ? 0.1 : 0.28)})`;
       ctx.fillRect(0, 0, W, H);
     }
-    if (this.activeEvent === "glitchedReality") this.drawGlitchOverlay();
+    if (this.activeEvent === "glitchedReality" && !this.reducedMotion)
+      this.drawGlitchOverlay();
     this.drawAchievementToasts();
     if (this.disclosureOpen) this.drawDisclosure();
     this.drawFadeTransition();
     ctx.restore();
     this.canvas.dataset.gameState = this.state;
     this.canvas.dataset.pilot = this.pilot;
+    this.canvas.dataset.mode = this.mode;
+    this.canvas.dataset.sector = this.currentSector;
+    this.canvas.dataset.encounter = String(this.currentEncounter);
+    this.canvas.dataset.circuit = String(this.currentCircuit);
+    this.canvas.dataset.combo = comboMultiplier(this.combo).toFixed(2);
   }
 
   private drawBackground() {
@@ -2039,19 +2797,27 @@ export class MonkeyInvadersEngine {
     ctx.textAlign = "center";
     ctx.fillStyle = pilot.secondary;
     ctx.font = "800 16px monospace";
-    ctx.fillText(`${pilot.name} CHANNEL · ${pilot.tagline}`, W / 2, 352);
+    const rule = PILOT_RULES[this.pilot];
+    ctx.fillText(`${pilot.name} · ${rule.role} · ${pilot.tagline}`, W / 2, 350);
+    ctx.fillStyle = "rgba(255,255,255,.72)";
+    ctx.font = "800 11px monospace";
+    ctx.fillText(
+      `MOB ${rule.mobility}/5  FIRE ${rule.firepower}/5  CONTROL ${rule.control}/5  RISK ${rule.risk}/5 · ${rule.blastLabel}`,
+      W / 2,
+      372
+    );
     ctx.fillStyle = "rgba(255,255,255,.7)";
-    ctx.font = "700 12px monospace";
-    ctx.fillText(this.currentReview(), W / 2, 374);
+    ctx.font = "700 10px monospace";
+    ctx.fillText(rule.scoringCue, W / 2, 390);
     ctx.fillStyle = Math.sin(this.titleClock * 4) > 0 ? "#fff" : pilot.primary;
     ctx.font = "900 19px monospace";
-    ctx.fillText("PRESS START", W / 2, 404);
+    ctx.fillText("PRESS START", W / 2, 416);
     ctx.fillStyle = "rgba(255,255,255,.5)";
     ctx.font = "700 10px monospace";
     ctx.fillText(
-      "MOVE A/D OR ←/→ · FIRE X/Z/SPACE · BLAST C/W/↑ · Q PILOT · M MODE · I INFO",
+      "MOVE A/D OR ←/→ · FIRE X/Z/SPACE · BLAST C/W/↑ · GAMEPAD · Q PILOT · M MODE · I INFO",
       W / 2,
-      422
+      438
     );
 
     this.drawHallOfFame();
@@ -2094,12 +2860,17 @@ export class MonkeyInvadersEngine {
     ctx.fillStyle = "rgba(255,255,255,.55)";
     ctx.fillText(`CREDITS ${this.credits}`, W - 24, 118);
     ctx.fillText(`MODE: ${MODE_LABELS[this.mode]}`, W - 24, 136);
+    ctx.fillText(
+      `${PILOTS[this.pilot].name} BEST: ${String(this.pilotBestScore).padStart(7, "0")}`,
+      W - 24,
+      154
+    );
     if (this.mode === "daily") {
       ctx.fillStyle = "#ffe774";
       ctx.fillText(
         `TODAY: ${RANDOM_EVENT_META[this.dailyModifier].label}`,
         W - 24,
-        154
+        172
       );
     }
     ctx.restore();
@@ -2133,6 +2904,61 @@ export class MonkeyInvadersEngine {
       const y =
         lerp(enemy.py, enemy.y, this.renderAlpha) +
         Math.sin(enemy.phase) * (enemy.kind === "spinner" ? 5 : 2);
+      if ((enemy.entryDelay ?? 0) > 0) {
+        const cueX = enemy.targetX ?? x;
+        ctx.save();
+        ctx.strokeStyle = "#ffffff";
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(cueX, 54, enemy.w, 16);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.font = "900 10px monospace";
+        ctx.fillText("▼", cueX + enemy.w / 2, 67);
+        ctx.restore();
+        continue;
+      }
+      if (enemy.teleportTargetX !== undefined) {
+        ctx.save();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(
+          enemy.teleportTargetX,
+          enemy.y - 4,
+          enemy.w,
+          enemy.h + 8
+        );
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "900 9px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          "TRANSFER",
+          enemy.teleportTargetX + enemy.w / 2,
+          enemy.y - 9
+        );
+        ctx.restore();
+      }
+      if (enemy.kind === "kamikaze" && !enemy.diving && enemy.diveDelay < 0.8) {
+        ctx.save();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "900 16px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("▼ 3", x + enemy.w / 2, y - 8);
+        ctx.restore();
+      }
+      if ((enemy.corruptTimer ?? 0) > 0) {
+        ctx.save();
+        ctx.strokeStyle = "#ffffff";
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(x - 5, y - 5, enemy.w + 10, enemy.h + 10);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "900 8px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("CORRUPT ↔", x + enemy.w / 2, y - 9);
+        ctx.restore();
+      }
       if (enemy.flash > 0) {
         ctx.save();
         ctx.globalCompositeOperation = "screen";
@@ -2155,7 +2981,8 @@ export class MonkeyInvadersEngine {
         enemy.elite,
         enemy.golden,
         shieldRatio,
-        enemy.diving
+        enemy.diving,
+        enemy.mutation
       );
     }
     this.drawHazards();
@@ -2170,6 +2997,29 @@ export class MonkeyInvadersEngine {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(alien.emoji, 0, 0);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      if (alien.kind === "spinner") {
+        ctx.beginPath();
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(15, 0);
+        ctx.moveTo(0, -15);
+        ctx.lineTo(0, 15);
+        ctx.stroke();
+      } else if (alien.kind === "tank") {
+        ctx.strokeRect(-17, -12, 34, 24);
+      } else if (alien.kind === "splitter") {
+        ctx.beginPath();
+        ctx.moveTo(-16, -12);
+        ctx.lineTo(-5, 12);
+        ctx.moveTo(16, -12);
+        ctx.lineTo(5, 12);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, 15, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.restore();
     }
     for (const particle of this.particles) {
@@ -2222,6 +3072,110 @@ export class MonkeyInvadersEngine {
     }
     if (this.messageTimer > 0) this.drawMessage(this.message);
     if (this.activeEvent) this.drawEventBanner();
+    if (this.state === "waveClear" && this.showWaveResult && this.waveResult)
+      this.drawWaveResult();
+  }
+
+  private drawWaveResult() {
+    const result = this.waveResult;
+    if (!result) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = "rgba(2,7,16,.9)";
+    ctx.fillRect(W / 2 - 245, H / 2 - 90, 490, 180);
+    ctx.strokeStyle = PILOTS[this.pilot].primary;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W / 2 - 245, H / 2 - 90, 490, 180);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff";
+    ctx.font = "900 20px monospace";
+    ctx.fillText(
+      `${sectorLabel(this.currentSector)} · RESULTS`,
+      W / 2,
+      H / 2 - 58
+    );
+    ctx.font = "800 12px monospace";
+    ctx.fillStyle = "rgba(255,255,255,.75)";
+    ctx.fillText(
+      `BASE ${result.baseScore}  COMBO +${result.comboBonus}  TIME +${result.timeBonus}  BLAST +${result.blastBonus}`,
+      W / 2,
+      H / 2 - 27
+    );
+    ctx.fillText(
+      `MAX x${result.largestCombo.toFixed(1)}  ACC ${Math.round(result.accuracy * 100)}%  ${result.duration.toFixed(1)}s`,
+      W / 2,
+      H / 2 + 2
+    );
+    ctx.fillStyle = "#ffe774";
+    ctx.font = "900 12px monospace";
+    ctx.fillText(
+      result.medals
+        .map(medal => medal.replace(/([A-Z])/g, " $1").toUpperCase())
+        .join(" · "),
+      W / 2,
+      H / 2 + 35
+    );
+    ctx.fillStyle = "rgba(255,255,255,.55)";
+    ctx.fillText("NEXT SIGNAL INCOMING", W / 2, H / 2 + 65);
+    ctx.restore();
+  }
+
+  private drawUpgradeChoice() {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = "rgba(1,4,12,.92)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffe774";
+    ctx.font = "900 25px monospace";
+    ctx.fillText("SECTOR MODIFIER — CHOOSE ONE", W / 2, 96);
+    ctx.fillStyle = "rgba(255,255,255,.62)";
+    ctx.font = "800 12px monospace";
+    ctx.fillText(
+      "← / → THEN FIRE · TOUCH A CARD · GAMEPAD SUPPORTED",
+      W / 2,
+      120
+    );
+    this.upgradeOptions.forEach((id, index) => {
+      const upgrade = RUN_UPGRADES[id];
+      const x = 52 + index * 302;
+      const selected = index === this.upgradeIndex;
+      ctx.fillStyle = selected
+        ? "rgba(84,230,255,.16)"
+        : "rgba(255,255,255,.045)";
+      ctx.fillRect(x, 158, 270, 230);
+      ctx.strokeStyle = selected
+        ? PILOTS[this.pilot].primary
+        : "rgba(255,255,255,.25)";
+      ctx.lineWidth = selected ? 3 : 1;
+      ctx.strokeRect(x, 158, 270, 230);
+      ctx.fillStyle = selected ? "#fff" : "rgba(255,255,255,.78)";
+      ctx.font = "900 17px monospace";
+      ctx.fillText(upgrade.label, x + 135, 205);
+      ctx.fillStyle = "#ffe774";
+      ctx.font = "800 11px monospace";
+      ctx.fillText(upgrade.family.toUpperCase(), x + 135, 232);
+      ctx.fillStyle = "rgba(255,255,255,.7)";
+      ctx.font = "700 13px monospace";
+      const words = upgrade.description.split(" ");
+      let line = "";
+      let lineIndex = 0;
+      for (const word of words) {
+        if ((line + word).length > 28) {
+          ctx.fillText(line.trim(), x + 135, 278 + lineIndex * 21);
+          line = "";
+          lineIndex += 1;
+        }
+        line += `${word} `;
+      }
+      ctx.fillText(line.trim(), x + 135, 278 + lineIndex * 21);
+      if (selected) {
+        ctx.fillStyle = PILOTS[this.pilot].secondary;
+        ctx.font = "900 12px monospace";
+        ctx.fillText("▶ INSTALL", x + 135, 364);
+      }
+    });
+    ctx.restore();
   }
 
   private drawHazards() {
@@ -2229,20 +3183,71 @@ export class MonkeyInvadersEngine {
     for (const hazard of this.hazards) {
       if (hazard.telegraph > 0) {
         ctx.save();
-        ctx.globalAlpha = 0.35 + Math.sin(this.titleClock * 20) * 0.15;
-        ctx.strokeStyle = "#ff5f3f";
+        ctx.globalAlpha = 0.65;
+        ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 6]);
-        ctx.beginPath();
-        ctx.moveTo(hazard.x, 0);
-        ctx.lineTo(hazard.x, PLAYER_Y + 20);
-        ctx.stroke();
+        if (hazard.kind === "meteor") {
+          ctx.beginPath();
+          ctx.moveTo(hazard.x, 48);
+          ctx.lineTo(hazard.x, PLAYER_Y + 20);
+          ctx.stroke();
+        } else {
+          ctx.strokeRect(
+            hazard.x - hazard.w / 2,
+            hazard.y - hazard.h / 2,
+            hazard.w,
+            hazard.h
+          );
+        }
         ctx.setLineDash([]);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "900 9px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(hazard.warningLabel ?? "HAZARD · OPEN LANE", hazard.x, 82);
         ctx.restore();
         continue;
       }
       const x = lerp(hazard.px, hazard.x, this.renderAlpha);
       const y = lerp(hazard.py, hazard.y, this.renderAlpha);
+      if (hazard.kind !== "meteor") {
+        ctx.save();
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle =
+          hazard.kind === "heat"
+            ? "#ff7f32"
+            : hazard.kind === "tentacle"
+              ? "#4b8dff"
+              : hazard.kind === "parasite"
+                ? "#7cff67"
+                : "#ff4fc3";
+        ctx.fillRect(x - hazard.w / 2, y - hazard.h / 2, hazard.w, hazard.h);
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - hazard.w / 2, y - hazard.h / 2, hazard.w, hazard.h);
+        ctx.font = "900 16px monospace";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffffff";
+        const glyph =
+          hazard.kind === "heat"
+            ? "≈≈"
+            : hazard.kind === "tentacle"
+              ? "S"
+              : hazard.kind === "parasite"
+                ? "#"
+                : hazard.kind === "beam"
+                  ? "||"
+                  : "[]";
+        for (
+          let glyphY = y - hazard.h / 2 + 24;
+          glyphY < y + hazard.h / 2;
+          glyphY += 42
+        )
+          ctx.fillText(glyph, x, glyphY);
+        ctx.restore();
+        continue;
+      }
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(this.titleClock * 4);
@@ -2264,15 +3269,19 @@ export class MonkeyInvadersEngine {
     ctx.save();
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = "rgba(0,0,0,.5)";
-    ctx.fillRect(W / 2 - 140, 70, 280, 20);
+    ctx.fillRect(W / 2 - 170, 70, 340, 24);
     ctx.strokeStyle = meta.color;
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(W / 2 - 140, 70, 280, 20);
+    ctx.strokeRect(W / 2 - 170, 70, 340, 24);
     ctx.fillStyle = meta.color;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = "800 11px monospace";
-    ctx.fillText(meta.label, W / 2, 80);
+    ctx.fillText(
+      `${meta.label} · ${this.eventFailed ? "FAILED" : `OBJECTIVE ${Math.min(2, this.eventObjective)}/2`}`,
+      W / 2,
+      82
+    );
     ctx.restore();
   }
 
@@ -2296,6 +3305,9 @@ export class MonkeyInvadersEngine {
     ctx.font = "700 15px monospace";
     ctx.fillStyle = "rgba(255,255,255,.75)";
     ctx.fillText(this.boss.tagline, 0, 34);
+    ctx.font = "800 11px monospace";
+    ctx.fillStyle = "#ffe774";
+    ctx.fillText(`READ: ${bossPattern(this.boss.name).opening}`, 0, 58);
     ctx.restore();
   }
 
@@ -2314,15 +3326,34 @@ export class MonkeyInvadersEngine {
     ctx.textAlign = "left";
     ctx.fillStyle = "#ffe774";
     ctx.fillText(`SCORE ${String(this.score).padStart(7, "0")}`, 18, 24);
+    ctx.font = "800 10px monospace";
+    ctx.fillStyle =
+      comboMultiplier(this.combo) > 1 ? "#fff36b" : "rgba(255,255,255,.48)";
+    ctx.fillText(
+      `COMBO x${comboMultiplier(this.combo).toFixed(2)} · HIT ${this.combo.consecutiveHits}`,
+      18,
+      41
+    );
     ctx.textAlign = "center";
     ctx.fillStyle = pilot.secondary;
+    ctx.font = "900 16px monospace";
     ctx.fillText(
-      this.boss ? `BOSS ${this.boss.name}` : `WAVE ${this.wave}`,
+      this.boss
+        ? `BOSS ${this.boss.name} · ${this.boss.vulnerable ? "◇ OPEN" : "◆ CLOSED"}`
+        : `${sectorLabel(this.currentSector)} · ${this.currentEncounter}/${this.mode === "endless" ? 7 : 6}`,
       W / 2,
       24
     );
+    ctx.font = "800 9px monospace";
+    ctx.fillStyle = "rgba(255,255,255,.48)";
+    ctx.fillText(
+      `CIRCUIT ${this.currentCircuit} · WAVE ${this.wave}`,
+      W / 2,
+      42
+    );
     ctx.textAlign = "right";
     ctx.fillStyle = "#ff8ba7";
+    ctx.font = "900 16px monospace";
     ctx.fillText(
       `LIVES ${this.player.lives > 20 ? "∞" : "♥".repeat(Math.max(0, this.player.lives))}`,
       W - 18,
@@ -2345,6 +3376,18 @@ export class MonkeyInvadersEngine {
       W / 2,
       H - 30
     );
+    if (this.pilot === "glitch") {
+      const beat = glitchBeat(this.waveElapsed);
+      ctx.font = "900 9px monospace";
+      ctx.fillStyle = beat === "stable" ? "rgba(255,255,255,.62)" : "#fff36b";
+      ctx.fillText(
+        beat === "stable"
+          ? "GLITCH WINDOW · STABLE"
+          : `GLITCH WINDOW · ${beat.toUpperCase()} !`,
+        W / 2,
+        H - 44
+      );
+    }
 
     if (this.boss) {
       const width = 360;
@@ -2461,7 +3504,8 @@ export class MonkeyInvadersEngine {
     elite = false,
     golden = false,
     shieldRatio = 0,
-    diving = false
+    diving = false,
+    mutation: import("./types.ts").EnemyMutation = "standard"
   ) {
     const ctx = this.ctx;
     const color = golden ? "#ffe774" : this.enemyColor(kind);
@@ -2491,6 +3535,41 @@ export class MonkeyInvadersEngine {
     ctx.fillStyle = color;
     ctx.fillRect(w * 0.12, h * 0.74, w * 0.18, h * 0.18);
     ctx.fillRect(w * 0.7, h * 0.74, w * 0.18, h * 0.18);
+    ctx.strokeStyle = "rgba(255,255,255,.9)";
+    ctx.lineWidth = 2;
+    if (kind === "scout") {
+      ctx.beginPath();
+      ctx.moveTo(w * 0.5, h * 0.18);
+      ctx.lineTo(w * 0.5, h * 0.02);
+      ctx.stroke();
+    } else if (kind === "spinner") {
+      ctx.beginPath();
+      for (let spoke = 0; spoke < 3; spoke += 1) {
+        const angle = phase + (spoke / 3) * Math.PI * 2;
+        ctx.moveTo(w / 2, h / 2);
+        ctx.lineTo(
+          w / 2 + Math.cos(angle) * w * 0.42,
+          h / 2 + Math.sin(angle) * h * 0.42
+        );
+      }
+      ctx.stroke();
+    } else if (kind === "tank") {
+      ctx.strokeRect(0, h * 0.22, w, h * 0.56);
+      ctx.fillStyle = "#07101b";
+      ctx.fillRect(w * 0.4, h * 0.05, w * 0.2, h * 0.16);
+    } else if (kind === "teleporter") {
+      const corner = 7;
+      ctx.strokeRect(-corner / 2, -corner / 2, corner, corner);
+      ctx.strokeRect(w - corner / 2, -corner / 2, corner, corner);
+      ctx.strokeRect(-corner / 2, h - corner / 2, corner, corner);
+      ctx.strokeRect(w - corner / 2, h - corner / 2, corner, corner);
+    } else if (kind === "kamikaze") {
+      ctx.beginPath();
+      ctx.moveTo(w * 0.32, h * 0.05);
+      ctx.lineTo(w * 0.5, -h * 0.12);
+      ctx.lineTo(w * 0.68, h * 0.05);
+      ctx.stroke();
+    }
     if (kind === "shield" && shieldRatio > 0) {
       ctx.strokeStyle = `rgba(143,230,255,${0.4 + shieldRatio * 0.5})`;
       ctx.lineWidth = 3;
@@ -2510,6 +3589,10 @@ export class MonkeyInvadersEngine {
       ctx.strokeStyle = "#ffe774";
       ctx.lineWidth = 2;
       ctx.strokeRect(w * 0.02, h * 0.02, w * 0.96, h * 0.96);
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.font = "900 9px monospace";
+      ctx.fillText(mutation === "volatile" ? "!" : "++", w / 2, h + 10);
     }
     ctx.restore();
   }
@@ -2519,6 +3602,25 @@ export class MonkeyInvadersEngine {
     const x = lerp(boss.px, boss.x, this.renderAlpha);
     const y = lerp(boss.py, boss.y, this.renderAlpha);
     ctx.save();
+    if (boss.name === "PHANTOM") {
+      const pose = bossPose(boss.name, boss.attackPhase, boss.phase);
+      for (let copy = 0; copy < 3; copy += 1) {
+        if (copy === pose.trueCopy) continue;
+        const copyX =
+          copy === 0 ? 70 : copy === 1 ? W / 2 - boss.w / 2 : W - boss.w - 70;
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        ctx.strokeStyle = "#ffffff";
+        ctx.setLineDash([7, 5]);
+        ctx.strokeRect(copyX, y + 22, boss.w, boss.h - 20);
+        ctx.setLineDash([]);
+        ctx.font = "900 10px monospace";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("FALSE · HARMLESS", copyX + boss.w / 2, y + boss.h + 12);
+        ctx.restore();
+      }
+    }
     if (boss.entering) ctx.globalAlpha = 0.5 + boss.enterProgress * 0.5;
     ctx.translate(x, y);
     ctx.shadowBlur = 26;
@@ -2533,11 +3635,40 @@ export class MonkeyInvadersEngine {
     ctx.textBaseline = "middle";
     ctx.font = "52px sans-serif";
     ctx.fillText(boss.symbol, boss.w / 2, boss.h / 2 + 2);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = boss.vulnerable ? 3 : 2;
+    if (boss.vulnerable) {
+      ctx.beginPath();
+      ctx.moveTo(boss.w / 2, 8);
+      ctx.lineTo(boss.w / 2 + 10, 18);
+      ctx.lineTo(boss.w / 2, 28);
+      ctx.lineTo(boss.w / 2 - 10, 18);
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(boss.w / 2 - 14, 12);
+      ctx.lineTo(boss.w / 2 + 14, 24);
+      ctx.moveTo(boss.w / 2 + 14, 12);
+      ctx.lineTo(boss.w / 2 - 14, 24);
+      ctx.stroke();
+    }
     if (boss.attackPhase > 0) {
       ctx.font = "800 11px monospace";
       ctx.fillStyle = "#fff";
       ctx.fillText(`PHASE ${boss.attackPhase + 1}`, boss.w / 2, boss.h + 14);
     }
+    ctx.font = "800 9px monospace";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(
+      boss.quietTimer && boss.quietTimer > 0
+        ? "QUIET BEAT · READ NEXT ATTACK"
+        : boss.vulnerable
+          ? "◇ OPEN"
+          : "◆ CLOSED",
+      boss.w / 2,
+      -10
+    );
     ctx.restore();
   }
 
@@ -2644,6 +3775,9 @@ export class MonkeyInvadersEngine {
     ctx.textBaseline = "middle";
     ctx.font = "900 12px monospace";
     ctx.fillText(meta.symbol, 0, 1);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "900 6px monospace";
+    ctx.fillText(meta.family.slice(0, 3).toUpperCase(), 0, 19);
     ctx.restore();
   }
 
@@ -2809,6 +3943,12 @@ export class MonkeyInvadersEngine {
       wave: this.wave,
       lives: this.player.lives,
       credits: this.credits,
+      sector: this.currentSector,
+      encounter: this.currentEncounter,
+      circuit: this.currentCircuit,
+      combo: comboMultiplier(this.combo),
+      shakeEnabled: this.cameraShakeEnabled && !this.reducedMotion,
+      unlockedPilots: Array.from(this.unlockedPilots),
     };
     const key = JSON.stringify(status);
     if (!force && key === this.lastStatusKey) return;
