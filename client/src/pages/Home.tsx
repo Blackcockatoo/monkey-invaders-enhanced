@@ -87,7 +87,11 @@ export default function Home() {
   const modeLabel = MODE_LABELS[status.mode];
 
   return (
-    <main className={`arcade-page pilot-${status.pilot}`}>
+    <main
+      className={`arcade-page pilot-${status.pilot}`}
+      data-state={status.state}
+      data-mode={status.mode}
+    >
       <div className="arcade-room" aria-hidden="true">
         <i className="room-glow room-glow-blue" />
         <i className="room-glow room-glow-pink" />
@@ -110,6 +114,29 @@ export default function Home() {
           <span>★</span>
           <b>MONKEY INVADERS</b>
           <span>★</span>
+        </div>
+
+        <div className="cabinet-data-rail" aria-label="Live cabinet status">
+          <span>
+            <small>PILOT SIGNAL</small>
+            <b>{pilotLabel}</b>
+          </span>
+          <span>
+            <small>MISSION MODE</small>
+            <b>{modeLabel}</b>
+          </span>
+          <span>
+            <small>WAVE / LIVES</small>
+            <b>
+              {String(status.wave).padStart(2, "0")} / {status.lives}
+            </b>
+          </span>
+          <span>
+            <small>SCORE / CREDITS</small>
+            <b>
+              {String(status.score).padStart(7, "0")} / {status.credits}
+            </b>
+          </span>
         </div>
 
         <div className="play-layout">
@@ -201,7 +228,7 @@ export default function Home() {
         >
           <span className="pilot-dot blue" /> BOLT
         </button>
-        <p>Two signals. Same cabinet. Pick the one that feels right.</p>
+        <p>Two core signals. More pilots unlock inside the cabinet.</p>
         <button
           className={status.pilot === "nova" ? "active" : ""}
           onClick={() => setPilot("nova")}
