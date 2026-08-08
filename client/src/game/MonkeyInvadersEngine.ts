@@ -115,6 +115,7 @@ export class MonkeyInvadersEngine {
   private wave = 1;
   private waveTimer = 0;
   private waveDamageTaken = false;
+  private waveEnemyCount = 0;
   private formationDirection = 1;
   private enemyShotTimer = 1.2;
   private shake = 0;
@@ -869,6 +870,7 @@ export class MonkeyInvadersEngine {
     this.boss = null;
     this.formationDirection = 1;
     this.waveDamageTaken = false;
+    this.waveEnemyCount = 0;
     this.enemyShotTimer = Math.max(0.38, 1.4 - this.wave * 0.045);
     if (this.mode === "bossRush") {
       this.spawnBoss(true);
@@ -935,6 +937,7 @@ export class MonkeyInvadersEngine {
         });
       }
     }
+    this.waveEnemyCount = this.enemies.length;
   }
 
   private spawnBoss(rush: boolean) {
@@ -999,13 +1002,15 @@ export class MonkeyInvadersEngine {
   }
 
   private updateEnemies(dt: number) {
-    if (this.enemies.length === 0) return;
-    const alive = this.enemies.filter(enemy => enemy.hp > 0);
+    const alive = this.pruneDeadEnemies();
     if (alive.length === 0) return;
+    const cleared = clamp(
+      1 - alive.length / Math.max(1, this.waveEnemyCount),
+      0,
+      1
+    );
     const speedBase =
-      42 +
-      this.wave * (this.mode === "endless" ? 6 : 5) +
-      (1 - alive.length / Math.max(1, this.enemies.length)) * 75;
+      42 + this.wave * (this.mode === "endless" ? 6 : 5) + cleared * 75;
     const panic = this.activeEvent === "alienPanic";
     let hitEdge = false;
     const playerBox = {
@@ -1132,7 +1137,18 @@ export class MonkeyInvadersEngine {
         enemy.hp = 0;
       }
     }
-    this.enemies = this.enemies.filter(enemy => enemy.hp > 0);
+    this.pruneDeadEnemies();
+  }
+
+  /**
+   * Drops every enemy that has already been killed and returns the survivors.
+   * Must stay unconditional: leaving a dead enemy in the list keeps
+   * checkWaveClear from ever firing, which soft-locks the run.
+   */
+  private pruneDeadEnemies(): Enemy[] {
+    if (this.enemies.some(enemy => enemy.hp <= 0))
+      this.enemies = this.enemies.filter(enemy => enemy.hp > 0);
+    return this.enemies;
   }
 
   private updateBoss(dt: number) {
@@ -1774,7 +1790,7 @@ export class MonkeyInvadersEngine {
   }
 
   private checkWaveClear() {
-    if (this.enemies.length > 0 || this.boss) return;
+    if (this.pruneDeadEnemies().length > 0 || this.boss) return;
     if (this.state !== "playing") return;
     this.state = "waveClear";
     this.stateTime = 0;
