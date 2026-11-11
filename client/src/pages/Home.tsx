@@ -13,6 +13,15 @@ import {
   type PilotId,
 } from "@/game/MonkeyInvadersEngine";
 import { MODE_LABELS } from "@/game/content";
+import {
+  CABINET_COPY,
+  LANGS,
+  LANG_LABEL,
+  detectLang,
+  saveLang,
+  type Lang,
+  type ModeId,
+} from "@/game/i18n";
 
 const HOLD_ACTIONS = new Set<Action>(["left", "right", "fire"]);
 const INITIAL_STATUS: CabinetStatus = {
@@ -26,11 +35,11 @@ const INITIAL_STATUS: CabinetStatus = {
   credits: 0,
 };
 
-const PILOT_LABELS: Record<PilotId, string> = {
-  bolt: "BLUE / BOLT",
-  nova: "PINK / NOVA",
-  rex: "AMBER / REX",
-  glitch: "GREEN / GLITCH",
+const PILOT_NAMES: Record<PilotId, string> = {
+  bolt: "BOLT",
+  nova: "NOVA",
+  rex: "REX",
+  glitch: "GLITCH",
 };
 
 export default function Home() {
@@ -38,6 +47,8 @@ export default function Home() {
   const engineRef = useRef<MonkeyInvadersEngine | null>(null);
   const [status, setStatus] = useState<CabinetStatus>(INITIAL_STATUS);
   const [muted, setMuted] = useState(false);
+  const [lang, setLang] = useState<Lang>(() => detectLang());
+  const t = CABINET_COPY[lang];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -48,6 +59,16 @@ export default function Home() {
     engine.start();
     return () => engine.destroy();
   }, []);
+
+  useEffect(() => {
+    engineRef.current?.setLang(lang);
+    document.documentElement.lang = lang;
+  }, [lang]);
+
+  const pickLang = (next: Lang) => {
+    setLang(next);
+    saveLang(next);
+  };
 
   const press = useCallback(
     (action: Action) => engineRef.current?.press(action),
@@ -83,8 +104,8 @@ export default function Home() {
   };
 
   const online = status.state !== "title" && status.state !== "boot";
-  const pilotLabel = PILOT_LABELS[status.pilot];
-  const modeLabel = MODE_LABELS[status.mode];
+  const pilotLabel = `${t.colors[status.pilot]} / ${PILOT_NAMES[status.pilot]}`;
+  const modeLabel = t.modes[status.mode as ModeId] ?? MODE_LABELS[status.mode];
 
   return (
     <main
@@ -102,14 +123,27 @@ export default function Home() {
 
       <header className="top-rail">
         <div className="studio-mark">
-          <span>B$S</span> BLUE $NAKE ARCADE
+          <span>B$S</span> {t.arcade}
+        </div>
+        <div className="lang-switch" role="group" aria-label={t.language}>
+          {LANGS.map((code) => (
+            <button
+              key={code}
+              type="button"
+              lang={code}
+              aria-pressed={lang === code}
+              onClick={() => pickLang(code)}
+            >
+              {LANG_LABEL[code]}
+            </button>
+          ))}
         </div>
         <div className="machine-status">
           <i /> TWIN SIGNAL <strong>002</strong>
         </div>
       </header>
 
-      <section className="cabinet" aria-label="Monkey Invaders arcade cabinet">
+      <section className="cabinet" aria-label={t.cabinetLabel}>
         <div className="cabinet-crown" aria-hidden="true">
           <span>★</span>
           <b>MONKEY INVADERS</b>
@@ -118,21 +152,21 @@ export default function Home() {
 
         <div className="cabinet-data-rail" aria-label="Live cabinet status">
           <span>
-            <small>PILOT SIGNAL</small>
+            <small>{t.pilotSignal}</small>
             <b>{pilotLabel}</b>
           </span>
           <span>
-            <small>MISSION MODE</small>
+            <small>{t.missionMode}</small>
             <b>{modeLabel}</b>
           </span>
           <span>
-            <small>WAVE / LIVES</small>
+            <small>{t.waveLives}</small>
             <b>
               {String(status.wave).padStart(2, "0")} / {status.lives}
             </b>
           </span>
           <span>
-            <small>SCORE / CREDITS</small>
+            <small>{t.scoreCredits}</small>
             <b>
               {String(status.score).padStart(7, "0")} / {status.credits}
             </b>
@@ -146,7 +180,7 @@ export default function Home() {
                 ref={canvasRef}
                 width={960}
                 height={540}
-                aria-label="Playable Monkey Invaders game"
+                aria-label={t.gameLabel}
                 tabIndex={0}
               />
               <div className="screen-glass" aria-hidden="true" />
@@ -156,24 +190,24 @@ export default function Home() {
 
           <div className="control-deck">
             <div className="dpad" aria-label="Movement controls">
-              <button type="button" aria-label="Move left" {...bind("left")}>
+              <button type="button" aria-label={t.moveLeft} {...bind("left")}>
                 <span>◀</span>
               </button>
-              <button type="button" aria-label="Move right" {...bind("right")}>
+              <button type="button" aria-label={t.moveRight} {...bind("right")}>
                 <span>▶</span>
               </button>
             </div>
 
             <div className="mini-controls">
               <button type="button" onClick={() => press("start")}>
-                START
+                {t.start}
               </button>
               <button
                 type="button"
                 className="pilot-switch"
                 onClick={cyclePilot}
               >
-                PILOT
+                {t.pilot}
                 <br />
                 <strong>{pilotLabel}</strong>
               </button>
@@ -182,17 +216,17 @@ export default function Home() {
                 className="pilot-switch"
                 onClick={cycleMode}
               >
-                MODE
+                {t.mode}
                 <br />
                 <strong>{modeLabel}</strong>
               </button>
               <button type="button" onClick={() => press("pause")}>
-                ARCHIVE
+                {t.archive}
                 <br />
-                PAUSE
+                {t.pause}
               </button>
               <button type="button" aria-pressed={muted} onClick={toggleMute}>
-                {muted ? "SOUND OFF" : "SOUND ON"}
+                {muted ? t.soundOff : t.soundOn}
               </button>
             </div>
 
@@ -200,27 +234,27 @@ export default function Home() {
               <button
                 className="fire"
                 type="button"
-                aria-label="Throw banana"
+                aria-label={t.throwBanana}
                 {...bind("fire")}
               >
                 <span>🍌</span>
-                <small>FIRE</small>
+                <small>{t.fire}</small>
               </button>
               <button
                 className="blast"
                 type="button"
-                aria-label="Banana blast"
+                aria-label={t.bananaBlast}
                 {...bind("special")}
               >
                 <span>★</span>
-                <small>BLAST</small>
+                <small>{t.blast}</small>
               </button>
             </div>
           </div>
         </div>
       </section>
 
-      <div className="pilot-choice" aria-label="Pilot channel selection">
+      <div className="pilot-choice" aria-label={t.pilotChoice}>
         <button
           className={status.pilot === "bolt" ? "active" : ""}
           onClick={() => setPilot("bolt")}
@@ -228,7 +262,7 @@ export default function Home() {
         >
           <span className="pilot-dot blue" /> BOLT
         </button>
-        <p>Two core signals. More pilots unlock inside the cabinet.</p>
+        <p>{t.pilotNote}</p>
         <button
           className={status.pilot === "nova" ? "active" : ""}
           onClick={() => setPilot("nova")}
@@ -240,21 +274,20 @@ export default function Home() {
 
       <footer className="machine-footer">
         <p>
-          {online ? "CABINET ONLINE" : "WARMING TUBES"} · {modeLabel} · WAVE{" "}
-          {status.wave} · HI {String(status.highScore).padStart(7, "0")}
+          {online ? t.online : t.warming} · {modeLabel} · {t.wave}{" "}
+          {status.wave} · {t.hi} {String(status.highScore).padStart(7, "0")}
         </p>
         <p className="desktop-hint">
-          MOVE A/D OR ←/→ · FIRE SPACE/X/Z · BLAST C/W/↑ · ENTER START · P PAUSE
-          · Q PILOT · M MODE · I INFO
+          {t.desktopHint}
         </p>
         <p className="mobile-hint">
-          MULTI-TOUCH READY · TURN LANDSCAPE FOR THE FULL CABINET
+          {t.mobileHint}
         </p>
       </footer>
 
       <div className="rotate-card" role="note">
-        <b>TURN THE CABINET</b>
-        <span>Monkey Invaders is made for comfortable landscape play.</span>
+        <b>{t.turnTitle}</b>
+        <span>{t.turnBody}</span>
         <div>↻</div>
       </div>
     </main>

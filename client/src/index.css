@@ -811,3 +811,38 @@ canvas {
     opacity: 0.22;
   }
 }
+
+/* ── Language switcher (EN / 日本語 / हिन्दी) ─────────────────────────── */
+.lang-switch {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.lang-switch button {
+  min-height: 28px;
+  padding: 2px 9px;
+  border: 1px solid rgba(143, 174, 210, 0.35);
+  border-radius: 999px;
+  background: rgba(5, 5, 9, 0.6);
+  color: #8faed2;
+  font: 700 12px/1 system-ui, sans-serif;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+.lang-switch button[aria-pressed="true"] {
+  border-color: var(--pilot);
+  color: #fff;
+  box-shadow: 0 0 10px var(--pilot);
+}
+.lang-switch button:focus-visible {
+  outline: 2px solid #ffe774;
+  outline-offset: 2px;
+}
+/* Wide arcade tracking breaks Devanagari conjuncts and crowds Japanese. */
+html:lang(ja) .arcade-page :not(.lang-switch button),
+html:lang(hi) .arcade-page :not(.lang-switch button) {
+  letter-spacing: normal;
+}
+html:lang(hi) .arcade-page {
+  font-family: "Noto Sans Devanagari", "Nirmala UI", "Kohinoor Devanagari", system-ui, sans-serif;
+}
