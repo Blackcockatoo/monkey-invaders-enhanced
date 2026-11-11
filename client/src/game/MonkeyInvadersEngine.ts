@@ -76,6 +76,11 @@ type DyingAlien = {
 };
 type AchievementToast = { title: string; desc: string; timer: number };
 
+/** Controls such as the language switcher keep Enter / Space for their own activation. */
+function keepsNativeKeys(event: KeyboardEvent) {
+  return event.target instanceof Element && event.target.closest("[data-native-keys]") !== null;
+}
+
 export class MonkeyInvadersEngine {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -426,6 +431,7 @@ export class MonkeyInvadersEngine {
   }
 
   private onKeyDown(event: KeyboardEvent) {
+    if (keepsNativeKeys(event)) return;
     if (!event.repeat) {
       if (event.code === "KeyQ" && this.state === "title") {
         this.cyclePilot();
@@ -463,6 +469,7 @@ export class MonkeyInvadersEngine {
   }
 
   private onKeyUp(event: KeyboardEvent) {
+    if (keepsNativeKeys(event)) return;
     const action = this.keyAction(event.code);
     if (!action) return;
     event.preventDefault();

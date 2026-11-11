@@ -69,6 +69,23 @@ export default function Home() {
     setLang(next);
     saveLang(next);
   };
+  // Rendered in the top rail, as a compact overlay when the rail is hidden on
+  // short landscape phones, and on the portrait rotate card.
+  const langSwitch = (className: string) => (
+    <div className={className} role="group" aria-label={t.language} data-native-keys>
+      {LANGS.map((code) => (
+        <button
+          key={code}
+          type="button"
+          lang={code}
+          aria-pressed={lang === code}
+          onClick={() => pickLang(code)}
+        >
+          {LANG_LABEL[code]}
+        </button>
+      ))}
+    </div>
+  );
 
   const press = useCallback(
     (action: Action) => engineRef.current?.press(action),
@@ -125,23 +142,12 @@ export default function Home() {
         <div className="studio-mark">
           <span>B$S</span> {t.arcade}
         </div>
-        <div className="lang-switch" role="group" aria-label={t.language}>
-          {LANGS.map((code) => (
-            <button
-              key={code}
-              type="button"
-              lang={code}
-              aria-pressed={lang === code}
-              onClick={() => pickLang(code)}
-            >
-              {LANG_LABEL[code]}
-            </button>
-          ))}
-        </div>
+        {langSwitch("lang-switch")}
         <div className="machine-status">
           <i /> TWIN SIGNAL <strong>002</strong>
         </div>
       </header>
+      {langSwitch("lang-switch lang-compact")}
 
       <section className="cabinet" aria-label={t.cabinetLabel}>
         <div className="cabinet-crown" aria-hidden="true">
@@ -289,6 +295,7 @@ export default function Home() {
         <b>{t.turnTitle}</b>
         <span>{t.turnBody}</span>
         <div>↻</div>
+        {langSwitch("lang-switch lang-rotate")}
       </div>
     </main>
   );
