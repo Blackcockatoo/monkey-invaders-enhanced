@@ -16,6 +16,8 @@ import { MODE_LABELS } from "@/game/content";
 import {
   CABINET_COPY,
   LANGS,
+  LANG_ARIA,
+  LANG_ENGLISH,
   LANG_LABEL,
   detectLang,
   saveLang,
@@ -69,10 +71,16 @@ export default function Home() {
     setLang(next);
     saveLang(next);
   };
-  // Rendered in the top rail, as a compact overlay when the rail is hidden on
-  // short landscape phones, and on the portrait rotate card.
+  // Rendered in the top rail and the footer, above the d-pad when the rail is
+  // hidden on short landscape phones, and on the portrait rotate card.
   const langSwitch = (className: string) => (
-    <div className={className} role="group" aria-label={t.language} data-native-keys>
+    <div className={className} role="group" aria-label={LANG_ARIA} data-native-keys>
+      <svg className="lang-globe" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+        <g fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9M12 3C9.5 5.6 8.2 8.6 8.2 12s1.3 6.4 3.8 9" />
+        </g>
+      </svg>
       {LANGS.map((code) => (
         <button
           key={code}
@@ -81,7 +89,8 @@ export default function Home() {
           aria-pressed={lang === code}
           onClick={() => pickLang(code)}
         >
-          {LANG_LABEL[code]}
+          <b>{LANG_LABEL[code]}</b>
+          <small lang="en">{LANG_ENGLISH[code]}</small>
         </button>
       ))}
     </div>
@@ -147,7 +156,6 @@ export default function Home() {
           <i /> TWIN SIGNAL <strong>002</strong>
         </div>
       </header>
-      {langSwitch("lang-switch lang-compact")}
 
       <section className="cabinet" aria-label={t.cabinetLabel}>
         <div className="cabinet-crown" aria-hidden="true">
@@ -180,6 +188,7 @@ export default function Home() {
         </div>
 
         <div className="play-layout">
+          {langSwitch("lang-switch lang-compact")}
           <div className="screen-bezel">
             <div className="screen-wrap">
               <canvas
@@ -290,6 +299,8 @@ export default function Home() {
           {t.mobileHint}
         </p>
       </footer>
+
+      {langSwitch("lang-switch lang-foot")}
 
       <div className="rotate-card" role="note">
         <b>{t.turnTitle}</b>
