@@ -13,12 +13,13 @@ import {
   type PilotId,
 } from "@/game/MonkeyInvadersEngine";
 import { MODE_LABELS } from "@/game/content";
+import { LangMenu } from "@/components/LangMenu";
 import {
   CABINET_COPY,
   LANGS,
   LANG_ARIA,
   LANG_ENGLISH,
-  LANG_LABEL,
+  LANG_NATIVE,
   detectLang,
   saveLang,
   type Lang,
@@ -71,29 +72,10 @@ export default function Home() {
     setLang(next);
     saveLang(next);
   };
-  // Rendered in the top rail and the footer, above the d-pad when the rail is
-  // hidden on short landscape phones, and on the portrait rotate card.
+  // Top-right of the rail; at the top of the d-pad column when the rail is
+  // hidden on short landscape phones; top-right of the portrait rotate card.
   const langSwitch = (className: string) => (
-    <div className={className} role="group" aria-label={LANG_ARIA} data-native-keys>
-      <svg className="lang-globe" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-        <g fill="none" stroke="currentColor" strokeWidth="1.8">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9M12 3C9.5 5.6 8.2 8.6 8.2 12s1.3 6.4 3.8 9" />
-        </g>
-      </svg>
-      {LANGS.map((code) => (
-        <button
-          key={code}
-          type="button"
-          lang={code}
-          aria-pressed={lang === code}
-          onClick={() => pickLang(code)}
-        >
-          <b>{LANG_LABEL[code]}</b>
-          <small lang="en">{LANG_ENGLISH[code]}</small>
-        </button>
-      ))}
-    </div>
+    <LangMenu lang={lang} langs={LANGS} native={LANG_NATIVE} english={LANG_ENGLISH} label={LANG_ARIA} onPick={pickLang} className={className} />
   );
 
   const press = useCallback(
@@ -151,10 +133,10 @@ export default function Home() {
         <div className="studio-mark">
           <span>B$S</span> {t.arcade}
         </div>
-        {langSwitch("lang-switch")}
         <div className="machine-status">
           <i /> TWIN SIGNAL <strong>002</strong>
         </div>
+        {langSwitch("lang-switch")}
       </header>
 
       <section className="cabinet" aria-label={t.cabinetLabel}>
@@ -300,12 +282,10 @@ export default function Home() {
         </p>
       </footer>
 
-      {langSwitch("lang-switch lang-foot")}
-
       <div className="rotate-card" role="note">
         <b>{t.turnTitle}</b>
         <span>{t.turnBody}</span>
-        <div>↻</div>
+        <div className="rotate-icon">↻</div>
         {langSwitch("lang-switch lang-rotate")}
       </div>
     </main>

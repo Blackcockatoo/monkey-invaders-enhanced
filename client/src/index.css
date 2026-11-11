@@ -784,7 +784,7 @@ canvas {
     font-size: 13px;
     line-height: 1.5;
   }
-  .rotate-card div {
+  .rotate-card .rotate-icon {
     color: var(--pilot);
     font-size: 58px;
     animation: turn 1.8s ease-in-out infinite;
@@ -812,102 +812,30 @@ canvas {
   }
 }
 
-/* ── Language switcher (EN / 日本語 / हिन्दी) ─────────────────────────── */
-.lang-switch {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: auto;
-  padding: 3px 3px 3px 9px;
-  border: 1px solid rgba(143, 174, 210, 0.45);
-  border-radius: 999px;
-  background: rgba(5, 5, 9, 0.72);
-}
-.lang-switch .lang-globe {
-  flex: none;
-  margin-right: 3px;
-  color: var(--pilot);
-}
-.lang-switch button {
-  position: relative;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  min-width: 54px;
-  padding: 3px 10px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: #dbe7f5;
-  line-height: 1.1;
-  letter-spacing: normal;
-  cursor: pointer;
-}
-.lang-switch button b {
-  font: 700 13px/1.15 system-ui, "Hiragino Sans", "Noto Sans JP", "Noto Sans Devanagari", "Nirmala UI", sans-serif;
-}
-.lang-switch button small {
-  margin-top: 2px;
-  font: 700 8px/1 system-ui, sans-serif;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  opacity: 0.75;
-}
-.lang-switch button:hover {
-  background: rgba(143, 174, 210, 0.14);
-}
-.lang-switch button[aria-pressed="true"] {
-  background: var(--pilot);
-  color: #05050a;
-  box-shadow: 0 0 12px var(--pilot);
-}
-.lang-switch button[aria-pressed="true"]::after {
-  content: "✓";
-  position: absolute;
-  top: -4px;
-  right: -3px;
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border: 1px solid var(--pilot);
-  border-radius: 50%;
-  background: #05050a;
-  color: var(--pilot);
-  font: 700 9px/1 system-ui, sans-serif;
-}
-.lang-switch button:focus-visible {
-  outline: 2px solid #ffe774;
-  outline-offset: 2px;
-}
-.lang-foot {
-  margin: 12px auto 4px;
-}
+/* ── Language menu: a small globe in the corner that opens EN / 日本語 / हिन्दी ── */
+.lang-menu { position: relative; flex: none; --lm-accent: #e7c767; }
+.lang-menu-btn { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid color-mix(in srgb, var(--lm-accent) 28%, transparent); border-radius: 50%; background: rgba(5, 6, 8, .6); color: color-mix(in srgb, var(--lm-accent) 62%, transparent); cursor: pointer; transition: color .15s, border-color .15s, background .15s; -webkit-tap-highlight-color: transparent; }
+.lang-menu-btn:hover, .lang-menu.is-open .lang-menu-btn { color: var(--lm-accent); border-color: color-mix(in srgb, var(--lm-accent) 65%, transparent); background: rgba(5, 6, 8, .85); }
+.lang-menu-btn:focus { outline: none; }
+.lang-menu-btn:focus-visible { color: var(--lm-accent); outline: 2px solid var(--lm-accent); outline-offset: 2px; }
+.lang-menu-list { position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; display: flex; flex-direction: column; gap: 2px; min-width: 156px; padding: 5px; border: 1px solid color-mix(in srgb, var(--lm-accent) 45%, transparent); border-radius: 10px; background: rgba(5, 6, 8, .97); box-shadow: 0 16px 36px -12px rgba(0, 0, 0, .85); text-align: left; }
+.lang-menu-list[hidden] { display: none; }
+.lang-menu-item { position: relative; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; min-height: 42px; width: 100%; padding: 4px 32px 4px 11px; border: 0; border-radius: 7px; background: transparent; color: #f3f0e6; cursor: pointer; line-height: 1.15; text-align: left; }
+.lang-menu-item b { font: 700 14px/1.2 system-ui, "Hiragino Sans", "Noto Sans JP", "Noto Sans Devanagari", "Nirmala UI", sans-serif; letter-spacing: 0; text-transform: none; }
+.lang-menu-item small { margin-top: 2px; font: 600 9px/1 system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase; opacity: .65; }
+.lang-menu-item:hover, .lang-menu-item:focus-visible { background: color-mix(in srgb, var(--lm-accent) 14%, transparent); color: var(--lm-accent); outline: none; }
+.lang-menu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--lm-accent); }
+.lang-menu-item[aria-pressed="true"] { color: var(--lm-accent); }
+.lang-menu-item[aria-pressed="true"]::after { content: "✓"; position: absolute; right: 11px; top: 50%; transform: translateY(-50%); font: 700 13px/1 system-ui, sans-serif; }
+.lang-switch { --lm-accent: #ffe774; }
+.top-rail .machine-status { margin-left: auto; }
+.top-rail .lang-switch { margin-left: 10px; }
 @media (max-width: 700px) {
-  .top-rail {
-    flex-wrap: wrap;
-  }
-  .top-rail .lang-switch {
-    order: 3;
-    width: 100%;
-    justify-content: center;
-    margin-left: 0;
-  }
-  .top-rail .lang-switch button {
-    flex: 1 1 0;
-    max-width: 110px;
-  }
-}
-@media (orientation: landscape) and (max-height: 560px) {
-  .lang-foot {
-    display: none;
-  }
+  .top-rail .lang-switch { margin-left: auto; }
 }
 /* Wide arcade tracking breaks Devanagari conjuncts and crowds Japanese. */
-html:lang(ja) .arcade-page :not(.lang-switch button),
-html:lang(hi) .arcade-page :not(.lang-switch button) {
+html:lang(ja) .arcade-page :not(.lang-menu-item),
+html:lang(hi) .arcade-page :not(.lang-menu-item) {
   letter-spacing: normal;
 }
 html:lang(hi) .arcade-page {
@@ -915,72 +843,28 @@ html:lang(hi) .arcade-page {
 }
 
 /* The top rail is hidden on short landscape phones and the rotate card covers
-   portrait phones, so the switcher also lives in those two places. */
+   portrait phones, so the globe also sits in those two places. */
 .lang-compact {
   display: none;
 }
 @media (orientation: landscape) and (max-height: 560px) {
-  /* Top of the d-pad column, above the centred d-pad. */
+  /* Top-left of the d-pad column, clear of the d-pad; the list opens to the right. */
   .lang-compact {
+    display: block;
     grid-column: 1;
     grid-row: 1;
     align-self: start;
-    justify-self: center;
+    justify-self: start;
     z-index: 5;
-    margin: 0;
+    margin: 2px 0 0 2px;
   }
-  /* 2×2 grid (globe + three languages) so it fits the strip above the d-pad. */
-  .lang-compact {
-    display: grid;
-    grid-template-columns: repeat(2, 50px);
-    gap: 2px;
-    padding: 3px;
-    border-radius: 14px;
-  }
-  .lang-compact .lang-globe {
-    place-self: center;
-    margin: 0;
-  }
-  .lang-compact button {
-    min-height: 40px;
-    min-width: 50px;
-    padding: 2px 4px;
-  }
-  .lang-compact button b {
-    font-size: 12px;
-  }
-  .lang-compact button small {
-    font-size: 7px;
-    letter-spacing: 0.04em;
+  .lang-compact .lang-menu-list {
+    left: 0;
+    right: auto;
   }
 }
-.rotate-card div.lang-rotate {
-  margin: 8px auto 0;
-  color: inherit;
-  font-size: inherit;
-  animation: none;
-  transform: none;
-}
-.rotate-card .lang-rotate button {
-  min-height: 44px;
-  min-width: 44px;
-  font-size: 14px;
-}
-.rotate-card .lang-rotate button b {
-  color: inherit;
-  font-size: 14px;
-  letter-spacing: normal;
-}
-@media (orientation: landscape) and (max-height: 400px) {
-  /* Shortest phones: drop the English sub-label in the d-pad copy so it clears the d-pad
-     (the top-bar, footer and rotate-card copies keep it). */
-  .lang-compact {
-    margin-top: -10px;
-  }
-  .lang-compact button {
-    min-height: 34px;
-  }
-  .lang-compact button small {
-    display: none;
-  }
+.rotate-card .lang-rotate {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
 }
