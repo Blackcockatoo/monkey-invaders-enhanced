@@ -34,6 +34,7 @@ import {
   RARE_TICKER_MESSAGES,
   TICKER_MESSAGES,
 } from "@/game/content";
+import { CABINET_COPY, type CabinetCopy, type Lang, type ModeId } from "@/game/i18n";
 import { ArcadeAudio } from "@/game/audio";
 import {
   Persistence,
@@ -74,6 +75,11 @@ type DyingAlien = {
   emoji: string;
 };
 type AchievementToast = { title: string; desc: string; timer: number };
+
+/** Controls such as the language switcher keep Enter / Space for their own activation. */
+function keepsNativeKeys(event: KeyboardEvent) {
+  return event.target instanceof Element && event.target.closest("[data-native-keys]") !== null;
+}
 
 export class MonkeyInvadersEngine {
   private readonly canvas: HTMLCanvasElement;
@@ -138,6 +144,7 @@ export class MonkeyInvadersEngine {
   private achievementsCache = Persistence.getAchievements();
   private achievementQueue: AchievementToast[] = [];
   private bananaSkin = Persistence.getBananaSkin();
+  private copy: CabinetCopy = CABINET_COPY.en;
   private tickerFeed: string;
   private dailyDateKey = dateKey(new Date());
   private dailyModifier: RandomEventId;
@@ -201,6 +208,15 @@ export class MonkeyInvadersEngine {
 
   getPilot() {
     return this.pilot;
+  }
+
+  /** Switch the canvas menu screens to another language (DOM labels live in Home.tsx). */
+  setLang(lang: Lang) {
+    this.copy = CABINET_COPY[lang];
+  }
+
+  private modeLabel() {
+    return this.copy.modes[this.mode as ModeId] ?? MODE_LABELS[this.mode];
   }
 
   isMuted() {
@@ -415,6 +431,7 @@ export class MonkeyInvadersEngine {
   }
 
   private onKeyDown(event: KeyboardEvent) {
+    if (keepsNativeKeys(event)) return;
     if (!event.repeat) {
       if (event.code === "KeyQ" && this.state === "title") {
         this.cyclePilot();
@@ -452,6 +469,7 @@ export class MonkeyInvadersEngine {
   }
 
   private onKeyUp(event: KeyboardEvent) {
+    if (keepsNativeKeys(event)) return;
     const action = this.keyAction(event.code);
     if (!action) return;
     event.preventDefault();
@@ -2039,17 +2057,17 @@ export class MonkeyInvadersEngine {
     ctx.textAlign = "center";
     ctx.fillStyle = pilot.secondary;
     ctx.font = "800 16px monospace";
-    ctx.fillText(`${pilot.name} CHANNEL · ${pilot.tagline}`, W / 2, 352);
+    ctx.fillText(`${pilot.name} ${this.copy.channel} · ${pilot.tagline}`, W / 2, 352);
     ctx.fillStyle = "rgba(255,255,255,.7)";
     ctx.font = "700 12px monospace";
     ctx.fillText(this.currentReview(), W / 2, 374);
     ctx.fillStyle = Math.sin(this.titleClock * 4) > 0 ? "#fff" : pilot.primary;
     ctx.font = "900 19px monospace";
-    ctx.fillText("PRESS START", W / 2, 404);
+    ctx.fillText(this.copy.pressStart, W / 2, 404);
     ctx.fillStyle = "rgba(255,255,255,.5)";
     ctx.font = "700 10px monospace";
     ctx.fillText(
-      "MOVE A/D OR ←/→ · FIRE X/Z/SPACE · BLAST C/W/↑ · Q PILOT · M MODE · I INFO",
+      this.copy.titleHint,
       W / 2,
       422
     );
@@ -2073,7 +2091,7 @@ export class MonkeyInvadersEngine {
     ctx.textAlign = "left";
     ctx.font = "800 12px monospace";
     ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.fillText("HALL OF FAME", x, y);
+    ctx.fillText(this.copy.hallOfFame, x, y);
     entries.forEach((entry, index) => {
       ctx.fillStyle =
         entry.initials === "YOU" ? "#ffe774" : "rgba(255,255,255,.65)";
@@ -2092,12 +2110,12 @@ export class MonkeyInvadersEngine {
     ctx.textAlign = "right";
     ctx.font = "800 12px monospace";
     ctx.fillStyle = "rgba(255,255,255,.55)";
-    ctx.fillText(`CREDITS ${this.credits}`, W - 24, 118);
-    ctx.fillText(`MODE: ${MODE_LABELS[this.mode]}`, W - 24, 136);
+    ctx.fillText(`${this.copy.credits} ${this.credits}`, W - 24, 118);
+    ctx.fillText(`${this.copy.modePrefix} ${this.modeLabel()}`, W - 24, 136);
     if (this.mode === "daily") {
       ctx.fillStyle = "#ffe774";
       ctx.fillText(
-        `TODAY: ${RANDOM_EVENT_META[this.dailyModifier].label}`,
+        `${this.copy.today} ${RANDOM_EVENT_META[this.dailyModifier].label}`,
         W - 24,
         154
       );
@@ -2732,7 +2750,7 @@ export class MonkeyInvadersEngine {
     );
     ctx.fillStyle = "rgba(255,255,255,.5)";
     ctx.font = "800 12px monospace";
-    ctx.fillText("PRESS I TO CLOSE", W / 2, H - 90);
+    ctx.fillText(this.copy.pressIClose, W / 2, H - 90);
     ctx.restore();
   }
 
@@ -2753,10 +2771,10 @@ export class MonkeyInvadersEngine {
     ctx.textAlign = "center";
     ctx.fillStyle = PILOTS[this.pilot].secondary;
     ctx.font = "900 54px monospace";
-    ctx.fillText("ARCHIVE PAUSED", W / 2, H / 2 - 12);
+    ctx.fillText(this.copy.paused, W / 2, H / 2 - 12);
     ctx.fillStyle = "rgba(255,255,255,.65)";
     ctx.font = "800 15px monospace";
-    ctx.fillText("PRESS P OR PAUSE TO RETURN TO THE SIGNAL", W / 2, H / 2 + 32);
+    ctx.fillText(this.copy.pausedHint, W / 2, H / 2 + 32);
   }
 
   private drawGameOver() {
@@ -2766,14 +2784,14 @@ export class MonkeyInvadersEngine {
     ctx.textAlign = "center";
     ctx.fillStyle = "#ff6b83";
     ctx.font = "900 60px monospace";
-    ctx.fillText("SIGNAL LOST", W / 2, 172);
+    ctx.fillText(this.copy.signalLost, W / 2, 172);
     ctx.fillStyle = "#ffe774";
     ctx.font = "900 24px monospace";
-    ctx.fillText(`SCORE ${String(this.score).padStart(7, "0")}`, W / 2, 226);
+    ctx.fillText(`${this.copy.score} ${String(this.score).padStart(7, "0")}`, W / 2, 226);
     ctx.fillStyle = "rgba(255,255,255,.6)";
     ctx.font = "800 13px monospace";
     ctx.fillText(
-      `${MODE_LABELS[this.mode]} · HIGH ${String(this.highScore).padStart(7, "0")}`,
+      `${this.modeLabel()} · ${this.copy.high} ${String(this.highScore).padStart(7, "0")}`,
       W / 2,
       254
     );
@@ -2783,10 +2801,10 @@ export class MonkeyInvadersEngine {
     ctx.fillStyle =
       Math.sin(this.titleClock * 4) > 0 ? "#fff" : PILOTS[this.pilot].primary;
     ctx.font = "900 19px monospace";
-    ctx.fillText("PRESS START TO REDEPLOY", W / 2, 340);
+    ctx.fillText(this.copy.redeploy, W / 2, 340);
     ctx.fillStyle = "rgba(255,255,255,.45)";
     ctx.font = "700 11px monospace";
-    ctx.fillText("PRESS I FOR CABINET INFO", W / 2, 366);
+    ctx.fillText(this.copy.infoHint, W / 2, 366);
   }
 
   private enemyColor(kind: EnemyKind) {
